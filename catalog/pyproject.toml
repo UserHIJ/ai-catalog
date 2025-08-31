@@ -1,0 +1,22 @@
+[project]
+name = "catalog-jobs"
+version = "0.1.0"
+requires-python = ">=3.10"
+dependencies = [
+  "duckdb",
+  "pyarrow",
+  "pandas",
+  "python-dotenv",
+  "sentence-transformers>=2.6",
+  "faiss-cpu",
+  "pyiceberg",
+  "trino"
+]
+
+[tool.black]
+line-length = 100
+
+[tool.ruff]
+line-length = 100
+select = ["E","F","I","UP"]
+

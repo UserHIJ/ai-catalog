@@ -1,0 +1,105 @@
+import Link from "next/link";
+import Layout from "@/components/Layout";
+import { Card } from "@/components/Card";
+import { mockDatasets } from "@/lib/mock";
+
+function prettyBytes(n: number) {
+  if (n === 0) return "0 B";
+  const units = ["B","KB","MB","GB","TB"];
+  const i = Math.floor(Math.log(n)/Math.log(1024));
+  return `${(n/Math.pow(1024,i)).toFixed(1)} ${units[i]}`;
+}
+
+// stable, readable palette per source system
+const sourceColors: Record<string, string> = {
+  "SAP ECC": "#0ea5e9",        // sky
+  "Oracle EBS": "#f97316",     // orange
+  "SQL Server": "#ef4444",     // red
+  "PostgreSQL": "#2563eb",     // blue
+  "Anaplan": "#8b5cf6",        // violet
+  "Shopify": "#16a34a",        // green
+  "Salesforce": "#38bdf8",     // light-sky
+  "Workday HCM": "#0891b2",    // cyan
+  "NetSuite": "#64748b",       // slate
+  "Zendesk": "#10b981",        // emerald
+  "Jira Cloud": "#3b82f6",     // blue
+  "GitHub": "#111827",         // near-black
+  "ServiceNow": "#22c55e",     // green
+  "Google Analytics": "#f59e0b"// amber
+};
+
+function badge(label: string, color?: string) {
+  const bg = color ? `${color}22` : "#eef2ff"; // translucent
+  const fg = color || "#4f46e5";
+  return (
+    <span style={{
+      display: "inline-block",
+      fontSize: 12,
+      padding: "2px 8px",
+      borderRadius: 999,
+      background: bg,
+      color: fg,
+      border: `1px solid ${fg}33`
+    }}>{label}</span>
+  );
+}
+
+export default function Home() {
+  return (
+    <Layout>
+      <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 16 }}>
+        <h2 style={{ fontSize: 22, fontWeight: 700 }}>Datasets</h2>
+        <input
+          placeholder="Search (mocked)"
+          style={{ padding: 8, border: "1px solid #ddd", borderRadius: 8, minWidth: 260 }}
+        />
+      </div>
+
+      {/* responsive tile grid: flows left→right, wraps nicely */}
+      <div
+        style={{
+          display: "grid",
+          gridTemplateColumns: "repeat(auto-fill, minmax(260px, 1fr))",
+          gap: 12
+        }}
+      >
+        {mockDatasets.map(d => {
+          const color = sourceColors[d.source] || "#94a3b8"; // fallback slate
+          return (
+            <Card
+              key={d.dataset_id}
+              accent={color}
+              onClick={() => { window.location.href = `/dataset/${d.dataset_id}`; }}
+            >
+              <div style={{ display: "flex", justifyContent: "space-between", gap: 12 }}>
+                <div style={{ minWidth: 0 }}>
+                  <Link
+                    href={`/dataset/${d.dataset_id}`}
+                    style={{ color: color, textDecoration: "none", fontWeight: 700, fontSize: 16 }}
+                  >
+                    {d.name}
+                  </Link>
+                  <div style={{ color: "#64748b", fontSize: 12, marginTop: 4, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                    {d.dataset_id}
+                  </div>
+                </div>
+                <div style={{ textAlign: "right", color: "#111827", fontSize: 13 }}>
+                  <div><strong>{d.row_count.toLocaleString()}</strong></div>
+                  <div style={{ color: "#6b7280" }}>{prettyBytes(d.size_bytes)}</div>
+                </div>
+              </div>
+
+              <div style={{ display: "flex", gap: 8, alignItems: "center", marginTop: 8 }}>
+                {badge(d.source, color)}
+                <span style={{ fontSize: 12, color: "#6b7280" }}>
+                  {d.last_profiled_at ? "profiled" : "unprofiled"}
+                </span>
+              </div>
+            </Card>
+          );
+        })}
+      </div>
+    </Layout>
+  );
+}
+

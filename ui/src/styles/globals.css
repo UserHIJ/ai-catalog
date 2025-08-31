@@ -1,0 +1,26 @@
+/* globals.css */
+
+:root {
+  --gap: 16px;
+}
+
+.grid-datasets {
+  display: grid;
+  grid-template-columns: 1fr; /* default: 1 col */
+  gap: var(--gap);
+}
+
+/* laptop: ≥640px */
+@media (min-width: 640px) {
+  .grid-datasets {
+    grid-template-columns: repeat(3, 1fr);
+  }
+}
+
+/* wide: ≥1024px */
+@media (min-width: 1024px) {
+  .grid-datasets {
+    grid-template-columns: repeat(5, 1fr);
+  }
+}
+
