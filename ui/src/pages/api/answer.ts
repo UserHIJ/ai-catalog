@@ -1,146 +1,216 @@
 // pages/api/answer.ts
 import type { NextApiRequest, NextApiResponse } from "next";
+import { Pool } from "pg";
 import OpenAI from "openai";
-import { Client } from "pg";
-import { performance } from "perf_hooks";
 
-const PG_URL = process.env.PG_URL || "postgres://postgres:postgres@localhost:5432/postgres";
-const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY! });
+/**
+ * Required env:
+ *  - OPENAI_API_KEY="sk-..."
+ *  - (one of) DATABASE_URL or PG_URL, e.g.:
+ *      postgres://user:password@host:5432/db
+ *    If your password has special chars (@:/?#&), URL-encode them.
+ *
+ * Schema expectations:
+ *  - Table: embeddings
+ *    - dataset_id TEXT NULL
+ *    - pk TEXT NOT NULL
+ *    - text_chunk TEXT NOT NULL
+ *    - embedding VECTOR(1536) NOT NULL  -- pgvector
+ *
+ * Recommended index:
+ *  CREATE INDEX ON embeddings USING ivfflat (embedding vector_cosine_ops) WITH (lists = 100);
+ *  ANALYZE embeddings;
+ */
 
-// You created a cosine index (vector_cosine_ops) → use cosine operator
-const DIST_OP = "<=>";
-
-type Row = { dataset_id: string; pk: string; text_chunk: string; distance: number; };
-
-function clamp(s: string, max: number) { return !s ? "" : (s.length <= max ? s : s.slice(0, max) + " …"); }
-function round4(n: number) { return Math.round(Number(n) * 1e4) / 1e4; }
-
-// pgvector cosine distance d ≈ 1 - cos_sim → sim ≈ 1 - d
-function cosineSimFromDistance(d: number) {
-  const s = 1 - Number(d);
-  return Math.max(0, Math.min(1, s));
+// ---------- Env + Pool (robust, supports PG_URL) ----------
+const DATABASE_URL = process.env.DATABASE_URL ?? process.env.PG_URL;
+if (!DATABASE_URL) {
+  throw new Error(
+    "Missing Postgres URL. Set DATABASE_URL or PG_URL. Example:\n" +
+      "  DATABASE_URL=postgres://user:password@host:5432/db\n" +
+      "Tip: URL-encode special characters in the password."
+  );
 }
 
-// very light heuristic: only treat queries with numbers/$ as numeric intent
-function isNumericIntent(q: string) { return /\$?\d/.test(q); }
+// Many hosted Postgres require SSL. Disable locally with PGSSL=disable
+const ssl =
+  process.env.PGSSL === "disable" ? false : ({ rejectUnauthorized: false } as const);
+
+function maskUrl(url: string) {
+  try {
+    const u = new URL(url);
+    if (u.password) u.password = "*****";
+    return u.toString();
+  } catch {
+    return "(invalid DATABASE_URL/PG_URL)";
+  }
+}
+
+let pool: Pool;
+try {
+  pool = new Pool({ connectionString: DATABASE_URL, ssl });
+} catch (e: any) {
+  throw new Error(`Failed to init Postgres pool for ${maskUrl(DATABASE_URL)}: ${e?.message || e}`);
+}
+
+const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+
+// Tunables
+const EMBEDDING_MODEL = process.env.EMBEDDING_MODEL ?? "text-embedding-3-small"; // 1536 dims
+const CHAT_MODEL = process.env.CHAT_MODEL ?? "gpt-4o-mini";
+const MAX_CTX_CHARS = 12000; // keep prompt sane
+const DEFAULT_K = 5;
+const MAX_K = 50;
+
+// cosine distance -> similarity
+function toSimilarity(distance: number | null | undefined) {
+  if (distance == null) return 0;
+  const sim = 1 - distance; // pgvector cosine distance = 1 - cosine_similarity
+  return Math.max(0, Math.min(1, sim));
+}
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
-  if (req.method !== "POST") return res.status(405).json({ error: "POST only" });
+  const t0 = Date.now();
 
-  const rid = `${Date.now()}-${Math.floor(Math.random() * 1e6)}`;
+  if (req.method !== "POST") {
+    return res.status(405).json({ error: "POST only" });
+  }
 
   try {
-    const { question, datasetId, k = 6, perChunkChars = 1200 } = req.body || {};
-    const topK = Number.isFinite(Number(k)) ? Number(k) : 6;
-    if (!question || typeof question !== "string") return res.status(400).json({ error: "missing question" });
+    const { question, datasetId, k } = req.body ?? {};
+    const trimmedQ = (question ?? "").toString().trim();
+    const K = Math.max(1, Math.min(Number.isFinite(+k) ? +k : DEFAULT_K, MAX_K));
+    const ds = (datasetId ?? null) && String(datasetId).trim() ? String(datasetId).trim() : null;
 
-    // 1) Embed
-    const emb = await openai.embeddings.create({ model: "text-embedding-3-small", input: question });
-    const qvec = emb.data[0].embedding as number[];
-
-    // 2) Retrieve (parameterized)
-    const pg = new Client({ connectionString: PG_URL });
-    await pg.connect();
-
-    const vecParam = `[${qvec.join(",")}]`;
-    const params: any[] = [vecParam];
-    let p = 2, where = "";
-    if (datasetId && typeof datasetId === "string" && datasetId.trim() !== "") {
-      where = `WHERE dataset_id = $${p++}`;
-      params.push(datasetId.trim());
+    if (!trimmedQ) {
+      return res.status(400).json({ error: "Missing 'question'." });
     }
 
-    const sql = `
-      SELECT dataset_id, pk, text_chunk,
-             embedding ${DIST_OP} $1::vector AS distance
-      FROM embeddings
-      ${where}
-      ORDER BY embedding ${DIST_OP} $1::vector
-      LIMIT $${p}
-    `;
-    params.push(topK);
+    // 1) Embed the query (must match stored vector dims)
+    const e0 = Date.now();
+    const embResp = await openai.embeddings.create({
+      model: EMBEDDING_MODEL,
+      input: trimmedQ,
+    });
+    const qvec = embResp.data[0]?.embedding;
+    if (!qvec || !Array.isArray(qvec)) {
+      throw new Error("Failed to get embedding for question.");
+    }
+    const embed_ms = Date.now() - e0;
 
-    const t0 = performance.now();
-    const { rows } = await pg.query<Row>(sql, params);
-    await pg.end();
-    const latency_ms = Math.round(performance.now() - t0);
+    // 2) Retrieve neighbors from Postgres/pgvector — identical to /api/ask
+    const client = await pool.connect();
+    let rows: {
+      dataset_id: string | null;
+      pk: string;
+      text_chunk: string;
+      distance: number;
+    }[] = [];
+    try {
+      const sql = ds
+        ? `
+          SELECT dataset_id, pk, text_chunk, (embedding <=> $1::vector) AS distance
+          FROM embeddings
+          WHERE dataset_id = $2
+          ORDER BY embedding <=> $1::vector
+          LIMIT $3;
+        `
+        : `
+          SELECT dataset_id, pk, text_chunk, (embedding <=> $1::vector) AS distance
+          FROM embeddings
+          ORDER BY embedding <=> $1::vector
+          LIMIT $2;
+        `;
+      const params = ds ? [qvec, ds, K] : [qvec, K];
+      const r = await client.query(sql, params);
+      rows = r.rows;
+    } finally {
+      client.release();
+    }
 
-    // 3) Build context + relevance signals
-    const contexts = rows.map((r, i) => ({
-      idx: i + 1,
-      dataset_id: r.dataset_id,
-      pk: r.pk,
-      distance: Number(r.distance),
-      content: clamp(r.text_chunk || "", Number(perChunkChars)),
-    }));
+    // 3) Relevance gate
+    const top = rows[0];
+    const topSim = toSimilarity(top?.distance);
+    const relevant = topSim >= 0.6; // tweak to taste
 
-    const contextText = contexts
-      .map(c => `#${c.idx} [dataset:${c.dataset_id} pk:${c.pk} dist:${c.distance.toFixed(4)}]\n${c.content}`)
-      .join("\n\n---\n\n");
+    // Citations + context
+    const citations = rows.map((r) => ({ dataset_id: r.dataset_id, pk: r.pk }));
 
-    const top1 = rows[0];
-    const top1Dist = top1 ? Number(top1.distance) : Infinity;
-    const top1Sim = Number.isFinite(top1Dist) ? cosineSimFromDistance(top1Dist) : 0;
+    let accumulated = 0;
+    const contextBlocks: string[] = [];
+    for (const r of rows) {
+      const chunk = r.text_chunk || "";
+      if (accumulated + chunk.length > MAX_CTX_CHARS) break;
+      contextBlocks.push(
+        [
+          `# Source`,
+          `dataset_id: ${r.dataset_id ?? "NULL"}`,
+          `pk: ${r.pk}`,
+          `similarity: ${toSimilarity(r.distance).toFixed(4)}`,
+          ``,
+          chunk,
+        ].join("\n")
+      );
+      accumulated += chunk.length;
+    }
 
-    // Tunables: be conservative. Below this sim → treat as irrelevant.
-    const RELEVANT_SIM_THRESHOLD = 0.6;
-    const relevant = rows.length > 0 && top1Sim >= RELEVANT_SIM_THRESHOLD;
-    const numericIntent = isNumericIntent(question);
+    let answer = "I don't know.";
 
-    // 4) Ask the model only if relevant
-    let answer = "";
-    if (relevant) {
-      const system =
-        "You are a careful data catalog assistant. Prefer concise, structured answers. " +
-        "Use ONLY the supplied context. If the context is insufficient or irrelevant, say “I don't know.” " +
-        "If you make a claim based on the context, cite it using [dataset_id:pk]. Never fabricate citations or data.";
+    // 4) Generate final answer grounded in retrieved context
+    if (relevant && contextBlocks.length > 0) {
+      const sys = [
+        "You are a precise data catalog assistant.",
+        "Answer ONLY using the provided context. If the context does not contain the answer, say you don't know.",
+        "Be concise. When helpful, cite dataset_id and pk from the sources.",
+      ].join(" ");
 
-      const userMsg =
-        `Question: ${question}\n\n` +
-        `Context:\n${contextText}\n\n` +
-        `Instructions:\n` +
-        `- If the context clearly answers, give a short answer with citations.\n` +
-        `- If the question is vague (e.g., 'around $X'), you may list the closest matches found in context (amounts, rows, ids) with citations.\n` +
-        `- If nothing relevant exists, say "I don't know."`;
+      const userPrompt = [
+        `Question: ${trimmedQ}`,
+        ``,
+        `Context (top ${contextBlocks.length}):`,
+        contextBlocks.join("\n\n---\n\n"),
+        ``,
+        `Instructions:`,
+        `- If a beacon phrase (e.g., purple-elephant-42) appears in a source, surface it and cite it.`,
+        `- If you don't have enough info, say "I don't know."`,
+      ].join("\n");
 
-      const completion = await openai.chat.completions.create({
-        model: process.env.CHAT_MODEL || "gpt-4o-mini",
-        messages: [{ role: "system", content: system }, { role: "user", content: userMsg }],
-        temperature: 0,
-        max_tokens: 500,
+      const chat = await openai.chat.completions.create({
+        model: CHAT_MODEL,
+        temperature: 0.2,
+        messages: [
+          { role: "system", content: sys },
+          { role: "user", content: userPrompt },
+        ],
       });
-      answer = completion.choices[0]?.message?.content?.trim() ?? "";
-    } else {
-      answer = "I don't know.";
+
+      const content = chat.choices?.[0]?.message?.content?.trim();
+      if (content) answer = content;
     }
 
-    // 5) Fallback ONLY if (a) relevant AND (b) numeric intent AND (c) model punted
-    if ((!answer || /i don['’]t know/i.test(answer)) && relevant && numericIntent) {
-      const bullets = rows.map((r) => {
-        let amt: string | null = null;
-        try {
-          const obj = JSON.parse(r.text_chunk);
-          if (typeof obj.amount === "number") amt = obj.amount.toFixed(2);
-        } catch {}
-        const amtPart = amt ? ` amount=$${amt}` : "";
-        return `• ${r.dataset_id}:${r.pk}${amtPart} [${r.dataset_id}:${r.pk}]`;
-      });
-      answer = "Closest matches from context:\n" + bullets.join("\n") + "\n\n(Ask a more specific question to get a direct answer.)";
-    }
+    const latency_ms = Date.now() - t0;
 
     return res.status(200).json({
-      request_id: rid,
-      question,
-      datasetId: datasetId ?? null,
-      k: topK,
+      request_id: `${t0}-${Math.random().toString(36).slice(2, 10)}`,
+      question: trimmedQ,
+      datasetId: ds,
+      k: K,
       latency_ms,
-      top3_distances: contexts.slice(0, 3).map(c => round4(c.distance)),
-      top1_similarity: round4(top1Sim),
-      citations: contexts.map(c => ({ dataset_id: c.dataset_id, pk: c.pk })),
       answer,
+      citations,
+      relevant,
+      top1_similarity: Number(topSim.toFixed(4)),
+      top3_distances: rows.slice(0, 3).map((r) => Number(r.distance.toFixed(6))),
+      embed_ms,
+      retriever_model: EMBEDDING_MODEL,
+      chat_model: CHAT_MODEL,
+      db: maskUrl(DATABASE_URL), // handy for sanity checks
     });
-  } catch (e: any) {
-    console.error("answer_error", JSON.stringify({ rid, error: String(e?.message || e) }));
-    return res.status(500).json({ error: e.message || String(e), request_id: rid });
+  } catch (err: any) {
+    const raw = (req as any)?._startTime;
+    const started =
+      typeof raw === "number" ? raw : raw instanceof Date ? raw.getTime() : Date.now();
+    const latency_ms = Date.now() - started;
+    return res.status(500).json({ error: err?.message ?? "Unknown error", latency_ms });
   }
 }

@@ -1,0 +1,1061 @@
+Dropping ALL tables in iceberg.datasets …
+
+=== ping coordinator ===
+TRINO_URL=http://localhost:8080
+SQL>
+SELECT current_timestamp
+---
+Columns: _col0:timestamp with time zone
+Rows returned: 1
+Preview:
+["2025-08-31 23:12:29.458 UTC"]
+Follow-ups: 6
+
+=== SHOW CATALOGS ===
+TRINO_URL=http://localhost:8080
+SQL>
+SHOW CATALOGS
+---
+Columns: Catalog:varchar(7)
+Rows returned: 2
+Preview:
+["iceberg"]
+["system"]
+Follow-ups: 5
+
+=== SHOW SCHEMAS FROM iceberg ===
+TRINO_URL=http://localhost:8080
+SQL>
+SHOW SCHEMAS FROM iceberg
+---
+Columns: Schema:varchar
+Rows returned: 4
+Preview:
+["catalog"]
+["datasets"]
+["demo"]
+["information_schema"]
+Follow-ups: 5
+
+=== SHOW TABLES FROM iceberg.datasets ===
+TRINO_URL=http://localhost:8080
+SQL>
+SHOW TABLES FROM iceberg.datasets
+---
+Columns: Table:varchar
+Rows returned: 90
+Preview:
+["entity_002"]
+["entity_003"]
+["entity_004"]
+["entity_005"]
+["entity_006"]
+["entity_007"]
+["entity_008"]
+["entity_009"]
+["entity_010"]
+["entity_011"]
+Follow-ups: 5
+Found 90 table(s) to drop.
+
+=== drop entity_002 ===
+TRINO_URL=http://localhost:8080
+CATALOG=iceberg
+SCHEMA=datasets
+SQL>
+DROP TABLE IF EXISTS iceberg.datasets."entity_002"
+---
+Columns: 
+Rows returned: 0
+Follow-ups: 3
+
+=== drop entity_003 ===
+TRINO_URL=http://localhost:8080
+CATALOG=iceberg
+SCHEMA=datasets
+SQL>
+DROP TABLE IF EXISTS iceberg.datasets."entity_003"
+---
+Columns: 
+Rows returned: 0
+Follow-ups: 3
+
+=== drop entity_004 ===
+TRINO_URL=http://localhost:8080
+CATALOG=iceberg
+SCHEMA=datasets
+SQL>
+DROP TABLE IF EXISTS iceberg.datasets."entity_004"
+---
+Columns: 
+Rows returned: 0
+Follow-ups: 3
+
+=== drop entity_005 ===
+TRINO_URL=http://localhost:8080
+CATALOG=iceberg
+SCHEMA=datasets
+SQL>
+DROP TABLE IF EXISTS iceberg.datasets."entity_005"
+---
+Columns: 
+Rows returned: 0
+Follow-ups: 3
+
+=== drop entity_006 ===
+TRINO_URL=http://localhost:8080
+CATALOG=iceberg
+SCHEMA=datasets
+SQL>
+DROP TABLE IF EXISTS iceberg.datasets."entity_006"
+---
+Columns: 
+Rows returned: 0
+Follow-ups: 3
+
+=== drop entity_007 ===
+TRINO_URL=http://localhost:8080
+CATALOG=iceberg
+SCHEMA=datasets
+SQL>
+DROP TABLE IF EXISTS iceberg.datasets."entity_007"
+---
+Columns: 
+Rows returned: 0
+Follow-ups: 3
+
+=== drop entity_008 ===
+TRINO_URL=http://localhost:8080
+CATALOG=iceberg
+SCHEMA=datasets
+SQL>
+DROP TABLE IF EXISTS iceberg.datasets."entity_008"
+---
+Columns: 
+Rows returned: 0
+Follow-ups: 3
+
+=== drop entity_009 ===
+TRINO_URL=http://localhost:8080
+CATALOG=iceberg
+SCHEMA=datasets
+SQL>
+DROP TABLE IF EXISTS iceberg.datasets."entity_009"
+---
+Columns: 
+Rows returned: 0
+Follow-ups: 3
+
+=== drop entity_010 ===
+TRINO_URL=http://localhost:8080
+CATALOG=iceberg
+SCHEMA=datasets
+SQL>
+DROP TABLE IF EXISTS iceberg.datasets."entity_010"
+---
+Columns: 
+Rows returned: 0
+Follow-ups: 3
+
+=== drop entity_011 ===
+TRINO_URL=http://localhost:8080
+CATALOG=iceberg
+SCHEMA=datasets
+SQL>
+DROP TABLE IF EXISTS iceberg.datasets."entity_011"
+---
+Columns: 
+Rows returned: 0
+Follow-ups: 4
+
+=== drop entity_012 ===
+TRINO_URL=http://localhost:8080
+CATALOG=iceberg
+SCHEMA=datasets
+SQL>
+DROP TABLE IF EXISTS iceberg.datasets."entity_012"
+---
+Columns: 
+Rows returned: 0
+Follow-ups: 3
+
+=== drop entity_013 ===
+TRINO_URL=http://localhost:8080
+CATALOG=iceberg
+SCHEMA=datasets
+SQL>
+DROP TABLE IF EXISTS iceberg.datasets."entity_013"
+---
+Columns: 
+Rows returned: 0
+Follow-ups: 3
+
+=== drop entity_014 ===
+TRINO_URL=http://localhost:8080
+CATALOG=iceberg
+SCHEMA=datasets
+SQL>
+DROP TABLE IF EXISTS iceberg.datasets."entity_014"
+---
+Columns: 
+Rows returned: 0
+Follow-ups: 4
+
+=== drop entity_015 ===
+TRINO_URL=http://localhost:8080
+CATALOG=iceberg
+SCHEMA=datasets
+SQL>
+DROP TABLE IF EXISTS iceberg.datasets."entity_015"
+---
+Columns: 
+Rows returned: 0
+Follow-ups: 2
+
+=== drop entity_016 ===
+TRINO_URL=http://localhost:8080
+CATALOG=iceberg
+SCHEMA=datasets
+SQL>
+DROP TABLE IF EXISTS iceberg.datasets."entity_016"
+---
+Columns: 
+Rows returned: 0
+Follow-ups: 3
+
+=== drop entity_017 ===
+TRINO_URL=http://localhost:8080
+CATALOG=iceberg
+SCHEMA=datasets
+SQL>
+DROP TABLE IF EXISTS iceberg.datasets."entity_017"
+---
+Columns: 
+Rows returned: 0
+Follow-ups: 3
+
+=== drop entity_018 ===
+TRINO_URL=http://localhost:8080
+CATALOG=iceberg
+SCHEMA=datasets
+SQL>
+DROP TABLE IF EXISTS iceberg.datasets."entity_018"
+---
+Columns: 
+Rows returned: 0
+Follow-ups: 3
+
+=== drop entity_019 ===
+TRINO_URL=http://localhost:8080
+CATALOG=iceberg
+SCHEMA=datasets
+SQL>
+DROP TABLE IF EXISTS iceberg.datasets."entity_019"
+---
+Columns: 
+Rows returned: 0
+Follow-ups: 3
+
+=== drop entity_02 ===
+TRINO_URL=http://localhost:8080
+CATALOG=iceberg
+SCHEMA=datasets
+SQL>
+DROP TABLE IF EXISTS iceberg.datasets."entity_02"
+---
+Columns: 
+Rows returned: 0
+Follow-ups: 3
+
+=== drop entity_020 ===
+TRINO_URL=http://localhost:8080
+CATALOG=iceberg
+SCHEMA=datasets
+SQL>
+DROP TABLE IF EXISTS iceberg.datasets."entity_020"
+---
+Columns: 
+Rows returned: 0
+Follow-ups: 3
+
+=== drop entity_021 ===
+TRINO_URL=http://localhost:8080
+CATALOG=iceberg
+SCHEMA=datasets
+SQL>
+DROP TABLE IF EXISTS iceberg.datasets."entity_021"
+---
+Columns: 
+Rows returned: 0
+Follow-ups: 4
+
+=== drop entity_022 ===
+TRINO_URL=http://localhost:8080
+CATALOG=iceberg
+SCHEMA=datasets
+SQL>
+DROP TABLE IF EXISTS iceberg.datasets."entity_022"
+---
+Columns: 
+Rows returned: 0
+Follow-ups: 3
+
+=== drop entity_023 ===
+TRINO_URL=http://localhost:8080
+CATALOG=iceberg
+SCHEMA=datasets
+SQL>
+DROP TABLE IF EXISTS iceberg.datasets."entity_023"
+---
+Columns: 
+Rows returned: 0
+Follow-ups: 3
+
+=== drop entity_024 ===
+TRINO_URL=http://localhost:8080
+CATALOG=iceberg
+SCHEMA=datasets
+SQL>
+DROP TABLE IF EXISTS iceberg.datasets."entity_024"
+---
+Columns: 
+Rows returned: 0
+Follow-ups: 2
+
+=== drop entity_025 ===
+TRINO_URL=http://localhost:8080
+CATALOG=iceberg
+SCHEMA=datasets
+SQL>
+DROP TABLE IF EXISTS iceberg.datasets."entity_025"
+---
+Columns: 
+Rows returned: 0
+Follow-ups: 2
+
+=== drop entity_026 ===
+TRINO_URL=http://localhost:8080
+CATALOG=iceberg
+SCHEMA=datasets
+SQL>
+DROP TABLE IF EXISTS iceberg.datasets."entity_026"
+---
+Columns: 
+Rows returned: 0
+Follow-ups: 3
+
+=== drop entity_027 ===
+TRINO_URL=http://localhost:8080
+CATALOG=iceberg
+SCHEMA=datasets
+SQL>
+DROP TABLE IF EXISTS iceberg.datasets."entity_027"
+---
+Columns: 
+Rows returned: 0
+Follow-ups: 3
+
+=== drop entity_028 ===
+TRINO_URL=http://localhost:8080
+CATALOG=iceberg
+SCHEMA=datasets
+SQL>
+DROP TABLE IF EXISTS iceberg.datasets."entity_028"
+---
+Columns: 
+Rows returned: 0
+Follow-ups: 3
+
+=== drop entity_029 ===
+TRINO_URL=http://localhost:8080
+CATALOG=iceberg
+SCHEMA=datasets
+SQL>
+DROP TABLE IF EXISTS iceberg.datasets."entity_029"
+---
+Columns: 
+Rows returned: 0
+Follow-ups: 3
+
+=== drop entity_03 ===
+TRINO_URL=http://localhost:8080
+CATALOG=iceberg
+SCHEMA=datasets
+SQL>
+DROP TABLE IF EXISTS iceberg.datasets."entity_03"
+---
+Columns: 
+Rows returned: 0
+Follow-ups: 3
+
+=== drop entity_030 ===
+TRINO_URL=http://localhost:8080
+CATALOG=iceberg
+SCHEMA=datasets
+SQL>
+DROP TABLE IF EXISTS iceberg.datasets."entity_030"
+---
+Columns: 
+Rows returned: 0
+Follow-ups: 3
+
+=== drop entity_031 ===
+TRINO_URL=http://localhost:8080
+CATALOG=iceberg
+SCHEMA=datasets
+SQL>
+DROP TABLE IF EXISTS iceberg.datasets."entity_031"
+---
+Columns: 
+Rows returned: 0
+Follow-ups: 3
+
+=== drop entity_032 ===
+TRINO_URL=http://localhost:8080
+CATALOG=iceberg
+SCHEMA=datasets
+SQL>
+DROP TABLE IF EXISTS iceberg.datasets."entity_032"
+---
+Columns: 
+Rows returned: 0
+Follow-ups: 3
+
+=== drop entity_033 ===
+TRINO_URL=http://localhost:8080
+CATALOG=iceberg
+SCHEMA=datasets
+SQL>
+DROP TABLE IF EXISTS iceberg.datasets."entity_033"
+---
+Columns: 
+Rows returned: 0
+Follow-ups: 3
+
+=== drop entity_034 ===
+TRINO_URL=http://localhost:8080
+CATALOG=iceberg
+SCHEMA=datasets
+SQL>
+DROP TABLE IF EXISTS iceberg.datasets."entity_034"
+---
+Columns: 
+Rows returned: 0
+Follow-ups: 3
+
+=== drop entity_035 ===
+TRINO_URL=http://localhost:8080
+CATALOG=iceberg
+SCHEMA=datasets
+SQL>
+DROP TABLE IF EXISTS iceberg.datasets."entity_035"
+---
+Columns: 
+Rows returned: 0
+Follow-ups: 3
+
+=== drop entity_036 ===
+TRINO_URL=http://localhost:8080
+CATALOG=iceberg
+SCHEMA=datasets
+SQL>
+DROP TABLE IF EXISTS iceberg.datasets."entity_036"
+---
+Columns: 
+Rows returned: 0
+Follow-ups: 3
+
+=== drop entity_037 ===
+TRINO_URL=http://localhost:8080
+CATALOG=iceberg
+SCHEMA=datasets
+SQL>
+DROP TABLE IF EXISTS iceberg.datasets."entity_037"
+---
+Columns: 
+Rows returned: 0
+Follow-ups: 3
+
+=== drop entity_038 ===
+TRINO_URL=http://localhost:8080
+CATALOG=iceberg
+SCHEMA=datasets
+SQL>
+DROP TABLE IF EXISTS iceberg.datasets."entity_038"
+---
+Columns: 
+Rows returned: 0
+Follow-ups: 3
+
+=== drop entity_039 ===
+TRINO_URL=http://localhost:8080
+CATALOG=iceberg
+SCHEMA=datasets
+SQL>
+DROP TABLE IF EXISTS iceberg.datasets."entity_039"
+---
+Columns: 
+Rows returned: 0
+Follow-ups: 3
+
+=== drop entity_04 ===
+TRINO_URL=http://localhost:8080
+CATALOG=iceberg
+SCHEMA=datasets
+SQL>
+DROP TABLE IF EXISTS iceberg.datasets."entity_04"
+---
+Columns: 
+Rows returned: 0
+Follow-ups: 3
+
+=== drop entity_040 ===
+TRINO_URL=http://localhost:8080
+CATALOG=iceberg
+SCHEMA=datasets
+SQL>
+DROP TABLE IF EXISTS iceberg.datasets."entity_040"
+---
+Columns: 
+Rows returned: 0
+Follow-ups: 3
+
+=== drop entity_041 ===
+TRINO_URL=http://localhost:8080
+CATALOG=iceberg
+SCHEMA=datasets
+SQL>
+DROP TABLE IF EXISTS iceberg.datasets."entity_041"
+---
+Columns: 
+Rows returned: 0
+Follow-ups: 4
+
+=== drop entity_05 ===
+TRINO_URL=http://localhost:8080
+CATALOG=iceberg
+SCHEMA=datasets
+SQL>
+DROP TABLE IF EXISTS iceberg.datasets."entity_05"
+---
+Columns: 
+Rows returned: 0
+Follow-ups: 3
+
+=== drop entity_06 ===
+TRINO_URL=http://localhost:8080
+CATALOG=iceberg
+SCHEMA=datasets
+SQL>
+DROP TABLE IF EXISTS iceberg.datasets."entity_06"
+---
+Columns: 
+Rows returned: 0
+Follow-ups: 3
+
+=== drop entity_07 ===
+TRINO_URL=http://localhost:8080
+CATALOG=iceberg
+SCHEMA=datasets
+SQL>
+DROP TABLE IF EXISTS iceberg.datasets."entity_07"
+---
+Columns: 
+Rows returned: 0
+Follow-ups: 3
+
+=== drop entity_08 ===
+TRINO_URL=http://localhost:8080
+CATALOG=iceberg
+SCHEMA=datasets
+SQL>
+DROP TABLE IF EXISTS iceberg.datasets."entity_08"
+---
+Columns: 
+Rows returned: 0
+Follow-ups: 3
+
+=== drop entity_09 ===
+TRINO_URL=http://localhost:8080
+CATALOG=iceberg
+SCHEMA=datasets
+SQL>
+DROP TABLE IF EXISTS iceberg.datasets."entity_09"
+---
+Columns: 
+Rows returned: 0
+Follow-ups: 3
+
+=== drop entity_10 ===
+TRINO_URL=http://localhost:8080
+CATALOG=iceberg
+SCHEMA=datasets
+SQL>
+DROP TABLE IF EXISTS iceberg.datasets."entity_10"
+---
+Columns: 
+Rows returned: 0
+Follow-ups: 3
+
+=== drop entity_11 ===
+TRINO_URL=http://localhost:8080
+CATALOG=iceberg
+SCHEMA=datasets
+SQL>
+DROP TABLE IF EXISTS iceberg.datasets."entity_11"
+---
+Columns: 
+Rows returned: 0
+Follow-ups: 3
+
+=== drop entity_12 ===
+TRINO_URL=http://localhost:8080
+CATALOG=iceberg
+SCHEMA=datasets
+SQL>
+DROP TABLE IF EXISTS iceberg.datasets."entity_12"
+---
+Columns: 
+Rows returned: 0
+Follow-ups: 3
+
+=== drop entity_13 ===
+TRINO_URL=http://localhost:8080
+CATALOG=iceberg
+SCHEMA=datasets
+SQL>
+DROP TABLE IF EXISTS iceberg.datasets."entity_13"
+---
+Columns: 
+Rows returned: 0
+Follow-ups: 3
+
+=== drop entity_14 ===
+TRINO_URL=http://localhost:8080
+CATALOG=iceberg
+SCHEMA=datasets
+SQL>
+DROP TABLE IF EXISTS iceberg.datasets."entity_14"
+---
+Columns: 
+Rows returned: 0
+Follow-ups: 3
+
+=== drop entity_15 ===
+TRINO_URL=http://localhost:8080
+CATALOG=iceberg
+SCHEMA=datasets
+SQL>
+DROP TABLE IF EXISTS iceberg.datasets."entity_15"
+---
+Columns: 
+Rows returned: 0
+Follow-ups: 3
+
+=== drop entity_16 ===
+TRINO_URL=http://localhost:8080
+CATALOG=iceberg
+SCHEMA=datasets
+SQL>
+DROP TABLE IF EXISTS iceberg.datasets."entity_16"
+---
+Columns: 
+Rows returned: 0
+Follow-ups: 3
+
+=== drop entity_17 ===
+TRINO_URL=http://localhost:8080
+CATALOG=iceberg
+SCHEMA=datasets
+SQL>
+DROP TABLE IF EXISTS iceberg.datasets."entity_17"
+---
+Columns: 
+Rows returned: 0
+Follow-ups: 3
+
+=== drop entity_18 ===
+TRINO_URL=http://localhost:8080
+CATALOG=iceberg
+SCHEMA=datasets
+SQL>
+DROP TABLE IF EXISTS iceberg.datasets."entity_18"
+---
+Columns: 
+Rows returned: 0
+Follow-ups: 3
+
+=== drop entity_19 ===
+TRINO_URL=http://localhost:8080
+CATALOG=iceberg
+SCHEMA=datasets
+SQL>
+DROP TABLE IF EXISTS iceberg.datasets."entity_19"
+---
+Columns: 
+Rows returned: 0
+Follow-ups: 3
+
+=== drop entity_20 ===
+TRINO_URL=http://localhost:8080
+CATALOG=iceberg
+SCHEMA=datasets
+SQL>
+DROP TABLE IF EXISTS iceberg.datasets."entity_20"
+---
+Columns: 
+Rows returned: 0
+Follow-ups: 3
+
+=== drop entity_21 ===
+TRINO_URL=http://localhost:8080
+CATALOG=iceberg
+SCHEMA=datasets
+SQL>
+DROP TABLE IF EXISTS iceberg.datasets."entity_21"
+---
+Columns: 
+Rows returned: 0
+Follow-ups: 3
+
+=== drop entity_22 ===
+TRINO_URL=http://localhost:8080
+CATALOG=iceberg
+SCHEMA=datasets
+SQL>
+DROP TABLE IF EXISTS iceberg.datasets."entity_22"
+---
+Columns: 
+Rows returned: 0
+Follow-ups: 3
+
+=== drop entity_23 ===
+TRINO_URL=http://localhost:8080
+CATALOG=iceberg
+SCHEMA=datasets
+SQL>
+DROP TABLE IF EXISTS iceberg.datasets."entity_23"
+---
+Columns: 
+Rows returned: 0
+Follow-ups: 3
+
+=== drop entity_24 ===
+TRINO_URL=http://localhost:8080
+CATALOG=iceberg
+SCHEMA=datasets
+SQL>
+DROP TABLE IF EXISTS iceberg.datasets."entity_24"
+---
+Columns: 
+Rows returned: 0
+Follow-ups: 3
+
+=== drop entity_25 ===
+TRINO_URL=http://localhost:8080
+CATALOG=iceberg
+SCHEMA=datasets
+SQL>
+DROP TABLE IF EXISTS iceberg.datasets."entity_25"
+---
+Columns: 
+Rows returned: 0
+Follow-ups: 3
+
+=== drop entity_26 ===
+TRINO_URL=http://localhost:8080
+CATALOG=iceberg
+SCHEMA=datasets
+SQL>
+DROP TABLE IF EXISTS iceberg.datasets."entity_26"
+---
+Columns: 
+Rows returned: 0
+Follow-ups: 3
+
+=== drop entity_27 ===
+TRINO_URL=http://localhost:8080
+CATALOG=iceberg
+SCHEMA=datasets
+SQL>
+DROP TABLE IF EXISTS iceberg.datasets."entity_27"
+---
+Columns: 
+Rows returned: 0
+Follow-ups: 3
+
+=== drop entity_28 ===
+TRINO_URL=http://localhost:8080
+CATALOG=iceberg
+SCHEMA=datasets
+SQL>
+DROP TABLE IF EXISTS iceberg.datasets."entity_28"
+---
+Columns: 
+Rows returned: 0
+Follow-ups: 3
+
+=== drop entity_29 ===
+TRINO_URL=http://localhost:8080
+CATALOG=iceberg
+SCHEMA=datasets
+SQL>
+DROP TABLE IF EXISTS iceberg.datasets."entity_29"
+---
+Columns: 
+Rows returned: 0
+Follow-ups: 3
+
+=== drop entity_30 ===
+TRINO_URL=http://localhost:8080
+CATALOG=iceberg
+SCHEMA=datasets
+SQL>
+DROP TABLE IF EXISTS iceberg.datasets."entity_30"
+---
+Columns: 
+Rows returned: 0
+Follow-ups: 3
+
+=== drop entity_31 ===
+TRINO_URL=http://localhost:8080
+CATALOG=iceberg
+SCHEMA=datasets
+SQL>
+DROP TABLE IF EXISTS iceberg.datasets."entity_31"
+---
+Columns: 
+Rows returned: 0
+Follow-ups: 3
+
+=== drop entity_32 ===
+TRINO_URL=http://localhost:8080
+CATALOG=iceberg
+SCHEMA=datasets
+SQL>
+DROP TABLE IF EXISTS iceberg.datasets."entity_32"
+---
+Columns: 
+Rows returned: 0
+Follow-ups: 3
+
+=== drop entity_33 ===
+TRINO_URL=http://localhost:8080
+CATALOG=iceberg
+SCHEMA=datasets
+SQL>
+DROP TABLE IF EXISTS iceberg.datasets."entity_33"
+---
+Columns: 
+Rows returned: 0
+Follow-ups: 3
+
+=== drop entity_34 ===
+TRINO_URL=http://localhost:8080
+CATALOG=iceberg
+SCHEMA=datasets
+SQL>
+DROP TABLE IF EXISTS iceberg.datasets."entity_34"
+---
+Columns: 
+Rows returned: 0
+Follow-ups: 3
+
+=== drop entity_35 ===
+TRINO_URL=http://localhost:8080
+CATALOG=iceberg
+SCHEMA=datasets
+SQL>
+DROP TABLE IF EXISTS iceberg.datasets."entity_35"
+---
+Columns: 
+Rows returned: 0
+Follow-ups: 3
+
+=== drop entity_36 ===
+TRINO_URL=http://localhost:8080
+CATALOG=iceberg
+SCHEMA=datasets
+SQL>
+DROP TABLE IF EXISTS iceberg.datasets."entity_36"
+---
+Columns: 
+Rows returned: 0
+Follow-ups: 3
+
+=== drop entity_37 ===
+TRINO_URL=http://localhost:8080
+CATALOG=iceberg
+SCHEMA=datasets
+SQL>
+DROP TABLE IF EXISTS iceberg.datasets."entity_37"
+---
+Columns: 
+Rows returned: 0
+Follow-ups: 3
+
+=== drop entity_38 ===
+TRINO_URL=http://localhost:8080
+CATALOG=iceberg
+SCHEMA=datasets
+SQL>
+DROP TABLE IF EXISTS iceberg.datasets."entity_38"
+---
+Columns: 
+Rows returned: 0
+Follow-ups: 3
+
+=== drop entity_39 ===
+TRINO_URL=http://localhost:8080
+CATALOG=iceberg
+SCHEMA=datasets
+SQL>
+DROP TABLE IF EXISTS iceberg.datasets."entity_39"
+---
+Columns: 
+Rows returned: 0
+Follow-ups: 3
+
+=== drop entity_40 ===
+TRINO_URL=http://localhost:8080
+CATALOG=iceberg
+SCHEMA=datasets
+SQL>
+DROP TABLE IF EXISTS iceberg.datasets."entity_40"
+---
+Columns: 
+Rows returned: 0
+Follow-ups: 3
+
+=== drop entity_41 ===
+TRINO_URL=http://localhost:8080
+CATALOG=iceberg
+SCHEMA=datasets
+SQL>
+DROP TABLE IF EXISTS iceberg.datasets."entity_41"
+---
+Columns: 
+Rows returned: 0
+Follow-ups: 3
+
+=== drop oracleebs_arreceipts ===
+TRINO_URL=http://localhost:8080
+CATALOG=iceberg
+SCHEMA=datasets
+SQL>
+DROP TABLE IF EXISTS iceberg.datasets."oracleebs_arreceipts"
+---
+Columns: 
+Rows returned: 0
+Follow-ups: 3
+
+=== drop oracleebs_gljournals ===
+TRINO_URL=http://localhost:8080
+CATALOG=iceberg
+SCHEMA=datasets
+SQL>
+DROP TABLE IF EXISTS iceberg.datasets."oracleebs_gljournals"
+---
+Columns: 
+Rows returned: 0
+Follow-ups: 4
+
+=== drop salesforce_accounts ===
+TRINO_URL=http://localhost:8080
+CATALOG=iceberg
+SCHEMA=datasets
+SQL>
+DROP TABLE IF EXISTS iceberg.datasets."salesforce_accounts"
+---
+Columns: 
+Rows returned: 0
+Follow-ups: 3
+
+=== drop salesforce_opportunities ===
+TRINO_URL=http://localhost:8080
+CATALOG=iceberg
+SCHEMA=datasets
+SQL>
+DROP TABLE IF EXISTS iceberg.datasets."salesforce_opportunities"
+---
+Columns: 
+Rows returned: 0
+Follow-ups: 3
+
+=== drop sapecc_materialmaster ===
+TRINO_URL=http://localhost:8080
+CATALOG=iceberg
+SCHEMA=datasets
+SQL>
+DROP TABLE IF EXISTS iceberg.datasets."sapecc_materialmaster"
+---
+Columns: 
+Rows returned: 0
+Follow-ups: 3
+
+=== drop sapecc_salesorders ===
+TRINO_URL=http://localhost:8080
+CATALOG=iceberg
+SCHEMA=datasets
+SQL>
+DROP TABLE IF EXISTS iceberg.datasets."sapecc_salesorders"
+---
+Columns: 
+Rows returned: 0
+Follow-ups: 3
+
+=== drop servicenow_changes ===
+TRINO_URL=http://localhost:8080
+CATALOG=iceberg
+SCHEMA=datasets
+SQL>
+DROP TABLE IF EXISTS iceberg.datasets."servicenow_changes"
+---
+Columns: 
+Rows returned: 0
+Follow-ups: 3
+
+=== drop servicenow_incidents ===
+TRINO_URL=http://localhost:8080
+CATALOG=iceberg
+SCHEMA=datasets
+SQL>
+DROP TABLE IF EXISTS iceberg.datasets."servicenow_incidents"
+---
+Columns: 
+Rows returned: 0
+Follow-ups: 3
+
+=== drop zendesk_tickets ===
+TRINO_URL=http://localhost:8080
+CATALOG=iceberg
+SCHEMA=datasets
+SQL>
+DROP TABLE IF EXISTS iceberg.datasets."zendesk_tickets"
+---
+Columns: 
+Rows returned: 0
+Follow-ups: 3
+
+=== drop zendesk_users ===
+TRINO_URL=http://localhost:8080
+CATALOG=iceberg
+SCHEMA=datasets
+SQL>
+DROP TABLE IF EXISTS iceberg.datasets."zendesk_users"
+---
+Columns: 
+Rows returned: 0
+Follow-ups: 3
+
+=== post-drop SHOW TABLES FROM iceberg.datasets ===
+TRINO_URL=http://localhost:8080
+SQL>
+SHOW TABLES FROM iceberg.datasets
+---
+Columns: Table:varchar
+Rows returned: 0
+Follow-ups: 5
+✓ Drops complete.
+bash-3.2$ 
+

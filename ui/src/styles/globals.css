@@ -24,3 +24,24 @@
   }
 }
 
+
+/* 1) Make html a stacking context */
+html { position: relative; }
+
+/* 2) Keep the background in that context (no negative z!) */
+html::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  background: url('/Fivetran.png') center/cover no-repeat;
+  opacity: 0.3;          /* tweak as you like */
+  z-index: 0;            /* <= key change: not negative */
+  pointer-events: none;
+}
+
+/* 3) Put the app above it, but keep it transparent */
+body, #__next {
+  position: relative;
+  z-index: 1;
+  background: transparent !important;
+}
