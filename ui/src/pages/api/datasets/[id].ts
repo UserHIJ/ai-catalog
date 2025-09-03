@@ -1,152 +1,82 @@
+// /ui/src/pages/api/datasets/[id].ts
 import type { NextApiRequest, NextApiResponse } from "next";
 import { q } from "@/lib/duckdb";
-import OpenAI from "openai";
-import { Client as PgClient } from "pg";
 
-// ------- ENV -------
-const W = process.env.WAREHOUSE;
-const PG_URL =
-  process.env.PG_URL || "postgres://postgres:postgres@localhost:5432/postgres";
-const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
+const WAREHOUSE = process.env.WAREHOUSE || ""; // e.g., s3://iceberg-warehouse
 
-// ------- HELPERS -------
-function idToEntityName(id: string): string | null {
-  const m = id.match(/^ds_(entity_\d{3})$/);
-  return m ? m[1] : null;
+function jsonSafe<T>(obj: T): T {
+  return JSON.parse(
+    JSON.stringify(obj, (_k, v) => (typeof v === "bigint" ? v.toString() : v))
+  );
 }
 
-async function probe(path: string): Promise<boolean> {
-  try {
-    await q(`SELECT * FROM iceberg_scan('${path}') LIMIT 1`);
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-function rowToText(row: any) {
-  // basic text serialization; tweak if you want nicer summaries
-  return JSON.stringify(row);
-}
-
-function toVec(arr: number[]) {
-  // pgvector array literal (no quotes); we'll cast with ::vector in SQL
-  return `[${arr.join(",")}]`;
-}
-
-async function embedBatch(openai: OpenAI, inputs: string[]): Promise<number[][]> {
-  const resp = await openai.embeddings.create({
-    model: "text-embedding-3-small",
-    input: inputs,
-  });
-  return resp.data.map((d) => d.embedding as number[]);
-}
-
-// ------- HANDLER -------
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
-  if (req.method !== "POST") return res.status(405).json({ error: "POST only" });
-
-  const datasetId = String(req.query.id || "");
-  const limit = Math.max(1, Math.min(10_000, Number(req.body?.limit ?? 200)));
-
-  if (!datasetId) return res.status(400).json({ error: "missing dataset id" });
-  if (!W) return res.status(500).json({ error: "WAREHOUSE env var missing" });
-  if (!OPENAI_API_KEY) return res.status(500).json({ error: "OPENAI_API_KEY missing" });
-  if (!PG_URL) return res.status(500).json({ error: "PG_URL missing" });
-
-  const openai = new OpenAI({ apiKey: OPENAI_API_KEY });
-  const pg = new PgClient({ connectionString: PG_URL });
-
-  // telemetry-ish request id
-  const rid = `${Date.now()}-${Math.floor(Math.random() * 1e6)}`;
-  const started = Date.now();
+  // Allow GET; block others.
+  if (req.method !== "GET") {
+    res.setHeader("Allow", "GET");
+    return res.status(405).json({ error: "Method not allowed" });
+  }
 
   try {
-    await pg.connect();
+    const raw = Array.isArray(req.query.id) ? req.query.id[0] : req.query.id;
+    const datasetId = String(raw || "").trim();
+    if (!datasetId) return res.status(400).json({ error: "missing id" });
+    if (!WAREHOUSE) return res.status(500).json({ error: "WAREHOUSE missing" });
 
-    // 1) Look up logical name for dataset
+    const wh = WAREHOUSE.replace(/\/+$/, "");
     const escId = datasetId.replace(/'/g, "''");
-    const catSql = `
-      SELECT dataset_id, name
-      FROM iceberg_scan('${W}/catalog/catalog_datasets')
+
+    // --- META --------------------------------------------------------------
+    // Read a single row from the catalog_datasets table for this dataset_id
+    const metaRows = await q(`
+      SELECT *
+      FROM iceberg_scan('${wh}/catalog/catalog_datasets')
       WHERE dataset_id='${escId}'
       LIMIT 1
-    `;
-    const [meta] = await q(catSql);
-    if (!meta) {
-      return res.status(404).json({ error: `dataset not found: ${datasetId}` });
+    `);
+    if (!Array.isArray(metaRows) || metaRows.length === 0) {
+      return res.status(404).json({ error: "dataset not found" });
     }
-    const logicalName = (meta as any).name as string;
-    const entityName = idToEntityName(datasetId);
+    const meta = metaRows[0];
 
-    // 2) Resolve Iceberg table path
-    const candidates: string[] = [];
-    candidates.push(`${W}/datasets/${logicalName}`);
-    if (entityName) candidates.push(`${W}/datasets/${entityName}`);
-    candidates.push(`${W}/demo/${logicalName}`);
-    candidates.push(`${W}/${logicalName}`);
-
-    let chosen: string | null = null;
-    for (const c of candidates) {
-      // eslint-disable-next-line no-await-in-loop
-      if (await probe(c)) { chosen = c; break; }
-    }
-    if (!chosen) {
-      return res.status(404).json({
-        status: "not-found",
-        error: "could not resolve Iceberg table path",
-        tried: candidates,
-      });
+    // --- COLUMNS -----------------------------------------------------------
+    // Try columns; if the table isn't present, just return an empty array.
+    let columns: any[] = [];
+    try {
+      // Use ordinal_position when available; otherwise order by column_name
+      const cols = await q(`
+        SELECT *
+        FROM iceberg_scan('${wh}/catalog/catalog_columns')
+        WHERE dataset_id='${escId}'
+        ORDER BY
+          CASE WHEN try_cast(NULLIF(ordinal_position, '') AS INTEGER) IS NOT NULL
+               THEN try_cast(NULLIF(ordinal_position, '') AS INTEGER)
+               ELSE 2147483647 END,
+          column_name
+      `);
+      if (Array.isArray(cols)) columns = cols;
+    } catch {
+      columns = [];
     }
 
-    // 3) Read up to `limit` rows from Iceberg
-    const rows = await q(`SELECT * FROM iceberg_scan('${chosen}') LIMIT ${limit}`);
-    if (!rows?.length) {
-      return res.status(200).json({
-        request_id: rid,
-        status: "no-new-rows",
-        totalRows: 0,
-        inserted: 0,
-        latency_ms: Date.now() - started,
-      });
+    // --- LINEAGE -----------------------------------------------------------
+    // Try lineage; include both inbound and outbound edges.
+    let lineage: any[] = [];
+    try {
+      const lin = await q(`
+        SELECT *
+        FROM iceberg_scan('${wh}/catalog/catalog_lineage')
+        WHERE src_dataset_id='${escId}' OR dst_dataset_id='${escId}'
+      `);
+      if (Array.isArray(lin)) lineage = lin;
+    } catch {
+      lineage = [];
     }
 
-    // 4) Create embeddings in batches
-    const BATCH = 100;
-    const texts = rows.map(rowToText);
-    let inserted = 0;
-
-    const insertSQL = `
-      INSERT INTO embeddings (dataset_id, pk, text_chunk, embedding)
-      VALUES ($1, $2, $3, $4::vector)
-      ON CONFLICT (dataset_id, pk) DO NOTHING
-    `;
-
-    for (let i = 0; i < rows.length; i += BATCH) {
-      const batchTexts = texts.slice(i, i + BATCH);
-      const embs = await embedBatch(openai, batchTexts);
-
-      for (let j = 0; j < batchTexts.length; j++) {
-        const row = rows[i + j] as any;
-        const pk = String(row.id ?? i + j); // choose your PK; adjust to your schema
-        const vec = toVec(embs[j]);
-        await pg.query(insertSQL, [datasetId, pk, batchTexts[j], vec]);
-        inserted++;
-      }
-    }
-
-    return res.status(200).json({
-      request_id: rid,
-      status: "published",
-      datasetId,
-      totalRows: rows.length,
-      inserted,
-      latency_ms: Date.now() - started,
-    });
+    // Done.
+    return res.status(200).json(jsonSafe({ meta, columns, lineage }));
   } catch (e: any) {
-    console.error("[publish:id]", rid, e?.message || e);
-    return res.status(500).json({ request_id: rid, error: e?.message || String(e) });
-  } finally {
-    try { await pg.end(); } catch {}
+    console.error("[api/datasets/:id] error:", e?.message || e);
+    return res.status(500).json({ error: e?.message || "internal error" });
   }
 }
