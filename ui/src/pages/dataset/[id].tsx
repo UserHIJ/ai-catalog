@@ -1,3 +1,5 @@
+/* /ui/src/pages/dataset/[id].tsx */
+
 import { useEffect, useState } from "react";
 import { useRouter } from "next/router";
 import Layout from "@/components/Layout";
@@ -19,12 +21,6 @@ type Column = {
   null_ratio?: unknown;
   distinct_ratio?: unknown;
 };
-type LineageEdge = {
-  src_dataset_id: string;
-  dst_dataset_id: string;
-  transform_type?: unknown;
-  updated_at?: unknown;
-};
 
 // ---- SAFE RENDER HELPERS ----
 function isObj(v: unknown): v is Record<string, unknown> {
@@ -36,8 +32,7 @@ function asNumber(v: unknown): number | null {
     const n = Number(v);
     return Number.isFinite(n) ? n : null;
   }
-  // bigint cannot appear here in the UI if the API sanitized; just in case:
-  // @ts-ignore
+  // @ts-ignore bigint fallback
   if (typeof v === "bigint") {
     const n = Number(v);
     return Number.isSafeInteger(n) ? n : null;
@@ -47,7 +42,6 @@ function asNumber(v: unknown): number | null {
 function asText(v: unknown): string {
   if (v == null) return "—";
   if (typeof v === "string" || typeof v === "number" || typeof v === "boolean") return String(v);
-  // UI must never try to render a raw object; stringify compactly
   if (isObj(v) || Array.isArray(v)) return JSON.stringify(v);
   // @ts-ignore bigint fallback
   if (typeof v === "bigint") {
@@ -76,7 +70,6 @@ export default function DatasetDetail(): JSX.Element {
 
   const [meta, setMeta] = useState<Meta | null>(null);
   const [columns, setColumns] = useState<Column[]>([]);
-  const [lineage, setLineage] = useState<LineageEdge[]>([]);
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
@@ -88,11 +81,10 @@ export default function DatasetDetail(): JSX.Element {
   useEffect(() => {
     setMeta(null);
     setColumns([]);
-    setLineage([]);
     setErr(null);
   }, [id]);
 
-  // Load meta/columns/lineage
+  // Load meta + columns (lineage removed)
   useEffect(() => {
     if (!id) return;
     let alive = true;
@@ -110,7 +102,7 @@ export default function DatasetDetail(): JSX.Element {
         if (!data?.meta) throw new Error("dataset not found");
         setMeta(data.meta);
         setColumns(Array.isArray(data.columns) ? data.columns : []);
-        setLineage(Array.isArray(data.lineage) ? data.lineage : []);
+        // lineage intentionally removed
       })
       .catch((e: any) => {
         if (!alive) return;
@@ -233,29 +225,41 @@ export default function DatasetDetail(): JSX.Element {
                 )}
               </div>
 
-              <ul style={{ margin: 0, paddingLeft: 18 }}>
-                {lineage.length ? (
-                  lineage.map((e, i) => (
-                    <li key={i} style={{ fontSize: 14 }}>
-                      {asText(e.src_dataset_id)} → {asText(e.dst_dataset_id)}{" "}
-                      <span style={{ color: "#666" }}>({asText(e.transform_type)})</span>
-                    </li>
-                  ))
-                ) : (
-                  <li style={{ color: "#666" }}>No lineage recorded</li>
-                )}
-              </ul>
+              {/* Lineage view intentionally blank for now */}
+              <div style={{ minHeight: 80 }} />
             </Card>
-          </div>
-
-          <Card>
-            <h3 style={{ fontWeight: 600, marginBottom: 8 }}>Columns</h3>
-            <div style={{ overflowX: "auto" }}>
-              {/* If you render a table, make sure to wrap each cell with asText(...) */}
-              {/* Example: */}
-              {/* <table> ... <td>{asText(col.data_type)}</td> ... </table> */}
-            </div>
-          </Card>
+                </div>
+                <Card>
+                    <h3 style={{ fontWeight: 600, marginBottom: 8 }}>Columns</h3>
+                    {columns.length === 0 ? (
+                      <div style={{ color: "#6b7280" }}>No columns</div>
+                    ) : (
+                      <div style={{ overflowX: "auto" }}>
+                        <table style={{ width: "100%", fontSize: 14, borderCollapse: "collapse" }}>
+                          <thead>
+                            <tr style={{ color: "#6b7280", textAlign: "left" }}>
+                              <th style={{ padding: "6px 8px", borderBottom: "1px solid #e5e7eb" }}>column_name</th>
+                              <th style={{ padding: "6px 8px", borderBottom: "1px solid #e5e7eb" }}>data_type</th>
+                              <th style={{ padding: "6px 8px", borderBottom: "1px solid #e5e7eb" }}>pii_flag</th>
+                              <th style={{ padding: "6px 8px", borderBottom: "1px solid #e5e7eb" }}>null_ratio</th>
+                              <th style={{ padding: "6px 8px", borderBottom: "1px solid #e5e7eb" }}>distinct_ratio</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {columns.map((c, i) => (
+                              <tr key={`${c.column_name}-${i}`}>
+                                <td style={{ padding: "6px 8px", borderBottom: "1px solid #f3f4f6" }}>{asText(c.column_name)}</td>
+                                <td style={{ padding: "6px 8px", borderBottom: "1px solid #f3f4f6" }}>{asText(c.data_type)}</td>
+                                <td style={{ padding: "6px 8px", borderBottom: "1px solid #f3f4f6" }}>{asText(c.pii_flag)}</td>
+                                <td style={{ padding: "6px 8px", borderBottom: "1px solid #f3f4f6" }}>{asText(c.null_ratio)}</td>
+                                <td style={{ padding: "6px 8px", borderBottom: "1px solid #f3f4f6" }}>{asText(c.distinct_ratio)}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                     )}
+              </Card>
 
           {/* Samples intentionally skipped for now */}
         </>
@@ -263,3 +267,4 @@ export default function DatasetDetail(): JSX.Element {
     </Layout>
   );
 }
+
