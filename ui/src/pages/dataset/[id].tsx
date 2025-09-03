@@ -1,5 +1,4 @@
 /* /ui/src/pages/dataset/[id].tsx */
-
 import { useEffect, useState } from "react";
 import { useRouter } from "next/router";
 import Layout from "@/components/Layout";
@@ -166,7 +165,8 @@ export default function DatasetDetail(): JSX.Element {
 
       {!err && !loading && meta && (
         <>
-          <div style={{ marginBottom: 16 }}>
+          {/* Header */}
+          <div style={{ marginBottom: 8 }}>
             <h2 style={{ fontSize: 22, fontWeight: 700, margin: 0 }}>
               {asText(meta.name)}{" "}
               <span style={{ color: "#666", fontSize: 14 }}>({asText(meta.dataset_id)})</span>
@@ -174,6 +174,42 @@ export default function DatasetDetail(): JSX.Element {
             <div style={{ color: "#666", fontSize: 13 }}>source: {asText(meta.source)}</div>
           </div>
 
+          {/* Publish toolbar OUTSIDE the Lineage card */}
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 8,
+              margin: "8px 0 16px 0",
+              justifyContent: "flex-end",
+            }}
+          >
+            <button
+              onClick={() => onPublish(200)}
+              disabled={publishing}
+              style={{
+                background: "#dc2626",
+                color: "white",
+                padding: "6px 12px",
+                borderRadius: 6,
+                fontSize: 14,
+                fontWeight: 600,
+                cursor: publishing ? "not-allowed" : "pointer",
+              }}
+            >
+              {publishing ? "Publishing…" : "Publish"}
+            </button>
+            {pubMsg && (
+              <span style={{ color: "#374151", fontSize: 13 }}>{pubMsg}</span>
+            )}
+            {pubErr && (
+              <span style={{ color: "#dc2626", fontSize: 13 }}>
+                Error: {pubErr}
+              </span>
+            )}
+          </div>
+
+          {/* Two-column grid: Profile + Lineage (blank) */}
           <div
             style={{
               display: "grid",
@@ -195,71 +231,43 @@ export default function DatasetDetail(): JSX.Element {
 
             <Card>
               <h3 style={{ fontWeight: 600, marginBottom: 8 }}>Lineage</h3>
-
-              {/* Publish button */}
-              <div style={{ marginBottom: 8 }}>
-                <button
-                  onClick={() => onPublish(200)}
-                  disabled={publishing}
-                  style={{
-                    background: "#dc2626",
-                    color: "white",
-                    padding: "6px 12px",
-                    borderRadius: 6,
-                    fontSize: 14,
-                    fontWeight: 600,
-                    cursor: publishing ? "not-allowed" : "pointer",
-                  }}
-                >
-                  {publishing ? "Publishing…" : "Publish"}
-                </button>
-                {pubMsg && (
-                  <span style={{ marginLeft: 8, color: "#374151", fontSize: 13 }}>
-                    {pubMsg}
-                  </span>
-                )}
-                {pubErr && (
-                  <span style={{ marginLeft: 8, color: "#dc2626", fontSize: 13 }}>
-                    Error: {pubErr}
-                  </span>
-                )}
-              </div>
-
               {/* Lineage view intentionally blank for now */}
               <div style={{ minHeight: 80 }} />
             </Card>
-                </div>
-                <Card>
-                    <h3 style={{ fontWeight: 600, marginBottom: 8 }}>Columns</h3>
-                    {columns.length === 0 ? (
-                      <div style={{ color: "#6b7280" }}>No columns</div>
-                    ) : (
-                      <div style={{ overflowX: "auto" }}>
-                        <table style={{ width: "100%", fontSize: 14, borderCollapse: "collapse" }}>
-                          <thead>
-                            <tr style={{ color: "#6b7280", textAlign: "left" }}>
-                              <th style={{ padding: "6px 8px", borderBottom: "1px solid #e5e7eb" }}>column_name</th>
-                              <th style={{ padding: "6px 8px", borderBottom: "1px solid #e5e7eb" }}>data_type</th>
-                              <th style={{ padding: "6px 8px", borderBottom: "1px solid #e5e7eb" }}>pii_flag</th>
-                              <th style={{ padding: "6px 8px", borderBottom: "1px solid #e5e7eb" }}>null_ratio</th>
-                              <th style={{ padding: "6px 8px", borderBottom: "1px solid #e5e7eb" }}>distinct_ratio</th>
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {columns.map((c, i) => (
-                              <tr key={`${c.column_name}-${i}`}>
-                                <td style={{ padding: "6px 8px", borderBottom: "1px solid #f3f4f6" }}>{asText(c.column_name)}</td>
-                                <td style={{ padding: "6px 8px", borderBottom: "1px solid #f3f4f6" }}>{asText(c.data_type)}</td>
-                                <td style={{ padding: "6px 8px", borderBottom: "1px solid #f3f4f6" }}>{asText(c.pii_flag)}</td>
-                                <td style={{ padding: "6px 8px", borderBottom: "1px solid #f3f4f6" }}>{asText(c.null_ratio)}</td>
-                                <td style={{ padding: "6px 8px", borderBottom: "1px solid #f3f4f6" }}>{asText(c.distinct_ratio)}</td>
-                              </tr>
-                            ))}
-                          </tbody>
-                        </table>
-                      </div>
-                     )}
-              </Card>
+          </div>
+
+          {/* Columns */}
+          <Card>
+            <h3 style={{ fontWeight: 600, marginBottom: 8 }}>Columns</h3>
+            {columns.length === 0 ? (
+              <div style={{ color: "#6b7280" }}>No columns</div>
+            ) : (
+              <div style={{ overflowX: "auto" }}>
+                <table style={{ width: "100%", fontSize: 14, borderCollapse: "collapse" }}>
+                  <thead>
+                    <tr style={{ color: "#6b7280", textAlign: "left" }}>
+                      <th style={{ padding: "6px 8px", borderBottom: "1px solid #e5e7eb" }}>column_name</th>
+                      <th style={{ padding: "6px 8px", borderBottom: "1px solid #e5e7eb" }}>data_type</th>
+                      <th style={{ padding: "6px 8px", borderBottom: "1px solid #e5e7eb" }}>pii_flag</th>
+                      <th style={{ padding: "6px 8px", borderBottom: "1px solid #e5e7eb" }}>null_ratio</th>
+                      <th style={{ padding: "6px 8px", borderBottom: "1px solid #e5e7eb" }}>distinct_ratio</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {columns.map((c, i) => (
+                      <tr key={`${c.column_name}-${i}`}>
+                        <td style={{ padding: "6px 8px", borderBottom: "1px solid #f3f4f6" }}>{asText(c.column_name)}</td>
+                        <td style={{ padding: "6px 8px", borderBottom: "1px solid #f3f4f6" }}>{asText(c.data_type)}</td>
+                        <td style={{ padding: "6px 8px", borderBottom: "1px solid #f3f4f6" }}>{asText(c.pii_flag)}</td>
+                        <td style={{ padding: "6px 8px", borderBottom: "1px solid #f3f4f6" }}>{asText(c.null_ratio)}</td>
+                        <td style={{ padding: "6px 8px", borderBottom: "1px solid #f3f4f6" }}>{asText(c.distinct_ratio)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </Card>
 
           {/* Samples intentionally skipped for now */}
         </>
@@ -267,4 +275,3 @@ export default function DatasetDetail(): JSX.Element {
     </Layout>
   );
 }
-
