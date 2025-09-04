@@ -50,24 +50,24 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       ORDER BY dataset_id, column_name, data_type
     `);
     const columns = Array.isArray(colsRows) ? colsRows : [];
-    const lineage: any[] = [];
+    //const lineage: any[] = [];
 
     // --- LINEAGE -----------------------------------------------------------
-   /*let lineage: any[] = [];
-     try {
-      const linRows = await q(`
-        SELECT src_dataset_id, dst_dataset_id, transform_type, updated_at
-        FROM iceberg_scan('${wh}/catalog/catalog_lineage_edges')
-        WHERE src_dataset_id='${escId}' OR dst_dataset_id='${escId}'
-        ORDER BY updated_at DESC NULLS LAST
-        LIMIT 200
-      `);
-      lineage = Array.isArray(linRows) ? linRows : [];
-    } catch {
-      // If lineage table doesn't exist yet, return empty array
-      lineage = [];
-    }
-      */
+
+
+    let lineage: any[] = [];
+      try {
+        const linRows = await q(`
+          SELECT src_dataset_id, dst_dataset_id, transform_type, updated_at
+          FROM iceberg_scan('${wh}/catalog/catalog_lineage_edges')
+          WHERE src_dataset_id='${escId}' OR dst_dataset_id='${escId}'
+          ORDER BY updated_at DESC NULLS LAST
+          LIMIT 200
+        `);
+        lineage = Array.isArray(linRows) ? linRows : [];
+      } catch {
+        lineage = [];
+}
     // Done
     return res.status(200).json(jsonSafe({ meta, columns, lineage }));
   } catch (e: any) {

@@ -3,6 +3,8 @@ export interface LineageNode {
   name: string;
   type: 'source' | 'integration' | 'transform' | 'enrichment';
   icon: string;
+  color?: string;
+  style?: React.CSSProperties;
 }
 
 export interface LineageEdge {
@@ -18,13 +20,15 @@ export class LineageDAG {
         id: 'salesforce',
         name: 'Salesforce',
         type: 'source',
-        icon: '🔄'
+        icon: '🔄',
+        style: { backgroundColor: 'green', color: 'white' } 
       },
       {
         id: 'fivetran',
         name: 'Fivetran',
         type: 'integration', 
         icon: '📡'
+
       },
       {
         id: 'Snowflake',
@@ -54,9 +58,9 @@ export class LineageDAG {
 
     const edges: LineageEdge[] = [
       { source: 'salesforce', target: 'fivetran', transform: 'replication' },
-      { source: 'fivetran', target: 'transform_bronze', transform: 'ingestion' },
-      { source: 'transform_bronze', target: 'transform_silver', transform: 'cleansing' },
-      { source: 'transform_silver', target: 'current_dataset', transform: 'enrichment' }
+      { source: 'fivetran', target: 'transform_bronze', transform: 'raw data' },
+      { source: 'transform_bronze', target: 'transform_silver', transform: 'transform' },
+      { source: 'transform_silver', target: 'current_dataset', transform: 'enriched' }
     ];
 
     return { nodes, edges };

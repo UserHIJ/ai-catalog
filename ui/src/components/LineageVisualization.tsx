@@ -5,81 +5,98 @@ interface LineageVisualizationProps {
   datasetId: string;
 }
 
+const TRANSFORM_COLORS: Record<string, { bg: string; border: string; text: string }> = {
+  replication: { bg: "rgba(37,99,235,0.12)", border: "#2563eb", text: "#1e40af" },      // blue
+  "raw data":  { bg: "rgba(8,145,178,0.12)", border: "#0891b2", text: "#0e7490" },     // cyan
+  transform:   { bg: "rgba(245,158,11,0.12)", border: "#f59e0b", text: "#b45309" },     // amber
+  enriched:    { bg: "rgba(22,163,74,0.12)",  border: "#16a34a", text: "#166534" },     // green
+};
+const styleForTransform = (name?: string | null) => {
+  const k = (name || "").toLowerCase();
+  return TRANSFORM_COLORS[k] || { bg: "rgba(107,114,128,0.12)", border: "#9ca3af", text: "#374151" }; // gray fallback
+};
+
+
 export const LineageVisualization: React.FC<LineageVisualizationProps> = ({ datasetId }) => {
   const { nodes, edges } = LineageDAG.createSalesforceLineage();
 
   return (
-    <div style={{
-      width: '100%',
-      padding: '20px',
-      backgroundColor: '#f5f5f5',
-      borderRadius: '8px',
-      position: 'relative',
-      left: '-.1in',
-      transform: 'scale(0.95)', // ← Shrinks everything by 5%
-      transformOrigin: 'left center' // ← Keeps it aligned left
+  <div style={{ padding: 8 }}>
+    {/* ROW OF NODES */}
+    <div
+      style={{
+        display: "flex",
+        alignItems: "center",
+        flexWrap: "wrap",
+        gap: 8,
+         marginBottom: 25,   
+      }}
+    >
+      {nodes.map((node, index) => (
+        <React.Fragment key={node.id}>
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 8,
+              padding: "4px 10px",
+              border: "1px solid #e5e7eb",
+              borderRadius: 8,
+              background: "#fffbe6" /* subtle yellow so you can SEE it */,
+        
+            }}
+          >
+            <span
+              style={{
+                fontSize: 14,         // 👈 smaller icon
+                lineHeight: 1,        // 👈 keeps icon vertically centered
+                display: "inline-flex",
+                alignItems: "center",
+                justifyContent: "center",
+                width: 15,
+                height: 15,
+              }}
+            >
+              {node.icon}
+            </span>
+            <span style={{ fontSize: 13 }}>{node.name}</span>
+          </div>
 
-    }}>
-      <div style={{
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        flexWrap: 'wrap',
-        gap: '16px',
-        marginBottom: '16px'
-      }}>
-        {nodes.map((node, index) => (
-          <React.Fragment key={node.id}>
-            <div style={{
-              display: 'flex',
-              flexDirection: 'column',
-              alignItems: 'center',
-              padding: '12px',
-              backgroundColor: 'white',
-              border: '2px solid #ddd',
-              borderRadius: '8px',
-              minWidth: '100px',
-              boxShadow: '0 2px 4px rgba(0,0,0,0.1)'
-            }}>
-              <div style={{
-                fontSize: '24px',
-                marginBottom: '8px'
-              }}>{node.icon}</div>
-              <div style={{
-                fontWeight: '500',
-                textAlign: 'center'
-              }}>{node.name}</div>
-            </div>
-            {index < nodes.length - 1 && (
-              <div style={{
-                fontSize: '20px',
-                color: '#666',
-                padding: '0 8px'
-              }}>→</div>
-            )}
-          </React.Fragment>
-        ))}
-      </div>
-      
-      {edges.length > 0 && (
-        <div style={{
-          display: 'flex',
-          justifyContent: 'space-between',
-          gap: '16px'
-        }}>
-          {edges.map((edge, index) => (
-            <div key={index} style={{
-              padding: '4px 8px',
-              backgroundColor: '#e3f2fd',
-              borderRadius: '4px',
-              fontSize: '12px',
-              color: '#1976d2'
-            }}>
-              {edge.transform}
-            </div>
-          ))}
-        </div>
-      )}
+          {index < nodes.length - 1 && (
+            <span
+              style={{
+                margin: "0 6px",
+                alignSelf: "center",   // 👈 arrow centers between nodes
+                fontSize: 14,
+              }}
+            >
+              →
+            </span>
+          )}
+        </React.Fragment>
+      ))}
     </div>
-  );
+
+    {/* EDGE LABELS */}
+{edges.length > 0 && (
+  <div style={{ marginTop: 6, display: "flex", gap: 6, flexWrap: "wrap" }}>
+    {edges.map((edge, i) => (
+      <span
+        key={i}
+        style={{
+          fontSize: 12,
+          color: "#6b7280",
+          background: "#f3f4f6",
+          border: "1px solid #e5e7eb",
+          borderRadius: 6,
+          padding: "12px 12px",
+        }}
+      >
+        {edge.transform}
+      </span>
+    ))}
+  </div>
+)}
+  </div>
+);
 };

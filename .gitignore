@@ -13,3 +13,6 @@ __pycache__/
 *.db
 *.pid
 *.sock
+
+# macOS junk
+.DS_Store

@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/router";
 import Layout from "@/components/Layout";
 import { Card } from "@/components/Card";
+import { LineageVisualization } from "@/components/LineageVisualization";
 
 type Meta = {
   dataset_id: string;
@@ -12,6 +13,7 @@ type Meta = {
   size_bytes?: unknown;
   last_profiled_at?: unknown;
 };
+
 type Column = {
   dataset_id: string;
   column_name: string;
@@ -19,6 +21,13 @@ type Column = {
   pii_flag?: unknown;
   null_ratio?: unknown;
   distinct_ratio?: unknown;
+};
+
+type Edge = {
+  src_dataset_id: string;
+  dst_dataset_id: string;
+  transform_type?: string | null;
+  updated_at?: unknown;
 };
 
 // ---- SAFE RENDER HELPERS ----
@@ -69,6 +78,7 @@ export default function DatasetDetail(): JSX.Element {
 
   const [meta, setMeta] = useState<Meta | null>(null);
   const [columns, setColumns] = useState<Column[]>([]);
+  const [lineage, setLineage] = useState<Edge[]>([]);
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
@@ -80,10 +90,11 @@ export default function DatasetDetail(): JSX.Element {
   useEffect(() => {
     setMeta(null);
     setColumns([]);
+    setLineage([]);
     setErr(null);
   }, [id]);
 
-  // Load meta + columns (lineage removed)
+  // Load meta + columns + lineage
   useEffect(() => {
     if (!id) return;
     let alive = true;
@@ -99,9 +110,9 @@ export default function DatasetDetail(): JSX.Element {
       .then((data) => {
         if (!alive) return;
         if (!data?.meta) throw new Error("dataset not found");
-        setMeta(data.meta);
-        setColumns(Array.isArray(data.columns) ? data.columns : []);
-        // lineage intentionally removed
+        setMeta(data.meta as Meta);
+        setColumns(Array.isArray(data.columns) ? (data.columns as Column[]) : []);
+        setLineage(Array.isArray(data.lineage) ? (data.lineage as Edge[]) : []);
       })
       .catch((e: any) => {
         if (!alive) return;
@@ -174,7 +185,7 @@ export default function DatasetDetail(): JSX.Element {
             <div style={{ color: "#666", fontSize: 13 }}>source: {asText(meta.source)}</div>
           </div>
 
-          {/* Publish toolbar OUTSIDE the Lineage card */}
+          {/* Publish toolbar (right-justified) */}
           <div
             style={{
               display: "flex",
@@ -209,7 +220,7 @@ export default function DatasetDetail(): JSX.Element {
             )}
           </div>
 
-          {/* Two-column grid: Profile + Lineage (blank) */}
+          {/* Two-column grid: Profile + Lineage */}
           <div
             style={{
               display: "grid",
@@ -231,8 +242,7 @@ export default function DatasetDetail(): JSX.Element {
 
             <Card>
               <h3 style={{ fontWeight: 600, marginBottom: 8 }}>Lineage</h3>
-              {/* Lineage view intentionally blank for now */}
-              <div style={{ minHeight: 80 }} />
+              <LineageVisualization datasetId={id} edges={lineage} />
             </Card>
           </div>
 
@@ -246,21 +256,41 @@ export default function DatasetDetail(): JSX.Element {
                 <table style={{ width: "100%", fontSize: 14, borderCollapse: "collapse" }}>
                   <thead>
                     <tr style={{ color: "#6b7280", textAlign: "left" }}>
-                      <th style={{ padding: "6px 8px", borderBottom: "1px solid #e5e7eb" }}>column_name</th>
-                      <th style={{ padding: "6px 8px", borderBottom: "1px solid #e5e7eb" }}>data_type</th>
-                      <th style={{ padding: "6px 8px", borderBottom: "1px solid #e5e7eb" }}>pii_flag</th>
-                      <th style={{ padding: "6px 8px", borderBottom: "1px solid #e5e7eb" }}>null_ratio</th>
-                      <th style={{ padding: "6px 8px", borderBottom: "1px solid #e5e7eb" }}>distinct_ratio</th>
+                      <th style={{ padding: "6px 8px", borderBottom: "1px solid #e5e7eb" }}>
+                        column_name
+                      </th>
+                      <th style={{ padding: "6px 8px", borderBottom: "1px solid #e5e7eb" }}>
+                        data_type
+                      </th>
+                      <th style={{ padding: "6px 8px", borderBottom: "1px solid #e5e7eb" }}>
+                        pii_flag
+                      </th>
+                      <th style={{ padding: "6px 8px", borderBottom: "1px solid #e5e7eb" }}>
+                        null_ratio
+                      </th>
+                      <th style={{ padding: "6px 8px", borderBottom: "1px solid #e5e7eb" }}>
+                        distinct_ratio
+                      </th>
                     </tr>
                   </thead>
                   <tbody>
                     {columns.map((c, i) => (
                       <tr key={`${c.column_name}-${i}`}>
-                        <td style={{ padding: "6px 8px", borderBottom: "1px solid #f3f4f6" }}>{asText(c.column_name)}</td>
-                        <td style={{ padding: "6px 8px", borderBottom: "1px solid #f3f4f6" }}>{asText(c.data_type)}</td>
-                        <td style={{ padding: "6px 8px", borderBottom: "1px solid #f3f4f6" }}>{asText(c.pii_flag)}</td>
-                        <td style={{ padding: "6px 8px", borderBottom: "1px solid #f3f4f6" }}>{asText(c.null_ratio)}</td>
-                        <td style={{ padding: "6px 8px", borderBottom: "1px solid #f3f4f6" }}>{asText(c.distinct_ratio)}</td>
+                        <td style={{ padding: "6px 8px", borderBottom: "1px solid #f3f4f6" }}>
+                          {asText(c.column_name)}
+                        </td>
+                        <td style={{ padding: "6px 8px", borderBottom: "1px solid #f3f4f6" }}>
+                          {asText(c.data_type)}
+                        </td>
+                        <td style={{ padding: "6px 8px", borderBottom: "1px solid #f3f4f6" }}>
+                          {asText(c.pii_flag)}
+                        </td>
+                        <td style={{ padding: "6px 8px", borderBottom: "1px solid #f3f4f6" }}>
+                          {asText(c.null_ratio)}
+                        </td>
+                        <td style={{ padding: "6px 8px", borderBottom: "1px solid #f3f4f6" }}>
+                          {asText(c.distinct_ratio)}
+                        </td>
                       </tr>
                     ))}
                   </tbody>
