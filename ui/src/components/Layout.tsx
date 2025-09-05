@@ -2,17 +2,25 @@ import React, { PropsWithChildren } from "react";
 
 export default function Layout({ children }: PropsWithChildren<{}>) {
   return (
-    <div style={{ maxWidth: 980, margin: "0 auto", padding: "24px" }}>
+    <div style={{ maxWidth: 980, margin: "12 auto", padding: "12px 66px" }}>
       <header
         style={{
-          marginBottom: 24,
+          marginBottom: 12,
           display: "flex",
           alignItems: "baseline",
           gap: 12,
         }}
       >
-        <h1 style={{ fontSize: 24, fontWeight: 700 }}>AI Catalog</h1>
-        <span style={{ color: "#666" }}>prototype</span>
+        <img 
+          src="/Fivetran.png" // Update this path to your actual image
+          alt="Fivetran Logo" 
+          style={{
+            height: 200, // Adjust size as needed
+            width: "auto",
+            //filter: "contrast(122) brightness(122) invert(0)" 
+          }}
+        />
+        <span style={{ color: "#666" }}></span>
       </header>
       {children}
       <footer
@@ -22,7 +30,7 @@ export default function Layout({ children }: PropsWithChildren<{}>) {
           fontSize: 12,
         }}
       >
-        v0 — UI only; data is mocked. Hook up Iceberg later.
+        v1 - Fivetran Iceberg Data Catalog 
       </footer>
     </div>
   );

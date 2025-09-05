@@ -3,7 +3,6 @@ import Link from "next/link";
 import Layout from "@/components/Layout";
 import { Card } from "@/components/Card";
 
-
 type DatasetRow = {
   dataset_id: string;
   name: string;
@@ -20,7 +19,6 @@ function prettyBytes(n: number) {
   return `${(n / Math.pow(1024, i)).toFixed(1)} ${units[i]}`;
 }
 
-// color per source system
 const sourceColors: Record<string, string> = {
   "SAP ECC": "#0ea5e9",
   "Oracle EBS": "#f97316",
@@ -62,6 +60,7 @@ export default function Home() {
   const [data, setData] = useState<DatasetRow[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [q, setQ] = useState("");
+  const [selectedFilter, setSelectedFilter] = useState("");
 
   useEffect(() => {
     let alive = true;
@@ -74,28 +73,53 @@ export default function Home() {
     };
   }, []);
 
-  const rows = (data ?? []).filter((d) =>
-    q.trim()
+  const rows = (data ?? []).filter((d) => {
+    const matchesSearch = q.trim()
       ? `${d.dataset_id} ${d.name} ${d.source}`.toLowerCase().includes(q.trim().toLowerCase())
-      : true
-  );
+      : true;
+    
+    const matchesFilter = selectedFilter ? d.source === selectedFilter : true;
+    
+    return matchesSearch && matchesFilter;
+  });
 
   return (
     <Layout>
-      <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 16, gap: 12 }}>
-        <h2 style={{ fontSize: 22, fontWeight: 700, margin: 0 }}>Datasets</h2>
-        <input
-          placeholder="Search name/id/source"
-          value={q}
-          onChange={(e) => setQ(e.target.value)}
-          style={{
-            padding: 8,
-            border: "1px solid #ddd",
-            borderRadius: 8,
-            minWidth: 260,
-            outline: "none",
-          }}
-        />
+      <div style={{ display: "flex", justifyContent: "flex-start", marginBottom: 16, gap: 12 }}>
+        <h2 style={{ fontSize: 22, fontWeight: 700, margin: 0 }}></h2>
+        
+        <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
+          <input
+            placeholder="Search name/id/source"
+            value={q}
+            onChange={(e) => setQ(e.target.value)}
+            style={{
+              padding: 8,
+              border: "1px solid #ddd",
+              borderRadius: 8,
+              minWidth: 260,
+              outline: "none",
+            }}
+          />
+          
+          <select
+            value={selectedFilter}
+            onChange={(e) => setSelectedFilter(e.target.value)}
+            style={{
+              padding: 8,
+              border: "1px solid #ddd",
+              borderRadius: 8,
+              outline: "none",
+              minWidth: 140,
+              backgroundColor: "white",
+            }}
+          >
+            <option value="">All Sources</option>
+            {Object.keys(sourceColors).map((source) => (
+              <option key={source} value={source}>{source}</option>
+            ))}
+          </select>
+        </div>
       </div>
 
       {error && (
@@ -106,7 +130,7 @@ export default function Home() {
       {!data && !error && <div style={{ padding: 12, color: "#6b7280" }}>loading…</div>}
       {data && rows.length === 0 && <div style={{ padding: 12, color: "#6b7280" }}>no matches</div>}
 
-      <div className="grid-datasets">
+      <div className="grid-datasets px-6">
         {rows.map((d) => {
           const color = sourceColors[d.source] || "#94a3b8";
           const href = `/dataset/${encodeURIComponent(d.dataset_id)}`;
@@ -116,7 +140,7 @@ export default function Home() {
                 <div style={{ minWidth: 0 }}>
                   <Link
                     href={href}
-                    style={{ color: color, textDecoration: "none", fontWeight: 700, fontSize: 16 }}
+                    style={{ color: color, textDecoration: "none", fontWeight: 700, fontSize: 24 }}
                   >
                     {d.name}
                   </Link>
