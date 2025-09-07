@@ -1,362 +1,235 @@
-// pages/api/ask.ts
+/* /pages/api/ask.ts */
 import type { NextApiRequest, NextApiResponse } from "next";
 import { Pool } from "pg";
-import OpenAI from "openai";
+import { openai, embedText, toSqlVector } from "@/lib/ai";
 
-// Environment variables
-const PG_URL = process.env.PG_URL;
-if (!PG_URL) {
-  console.error("Missing PG_URL environment variable");
+/** ---------- DB ---------- */
+const DB_URL = process.env.DATABASE_URL || process.env.PG_URL;
+if (!DB_URL) throw new Error("Missing DATABASE_URL/PG_URL for Postgres connection");
+const pool = new Pool({ connectionString: DB_URL });
+
+/** ---------- LOGGING HELPERS (do NOT execute what they print) ---------- */
+function escapeLiteralForLog(val: unknown): string {
+  if (val === null || val === undefined) return "NULL";
+  if (typeof val === "number" && Number.isFinite(val)) return String(val);
+  if (typeof val === "boolean") return val ? "TRUE" : "FALSE";
+  if (typeof val === "string") {
+    // If it looks like a pgvector literal, keep unquoted
+    if (/^\s*\[\s*-?\d+(?:\.\d+)?(?:\s*,\s*-?\d+(?:\.\d+)?)*\s*\]\s*$/.test(val)) return val;
+    return `'${val.replace(/'/g, "''")}'`;
+  }
+  try {
+    const s = JSON.stringify(val);
+    return `'${s.replace(/'/g, "''")}'`;
+  } catch {
+    return `'${String(val).replace(/'/g, "''")}'`;
+  }
+}
+function interpolate(sql: string, params: unknown[]): string {
+  return sql.replace(/\$(\d+)\b/g, (_, i) => escapeLiteralForLog(params[Number(i) - 1]));
 }
 
-const DEMO_DATASET_ID = process.env.DEMO_DATASET_ID || "ds_salesforce_accounts";
-const EMBEDDING_MODEL = process.env.EMBEDDING_MODEL || "text-embedding-3-small";
-const LLM_MODEL = process.env.LLM_MODEL || "gpt-4o-mini";
-const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
-
-if (!OPENAI_API_KEY) {
-  console.error("Missing OPENAI_API_KEY environment variable");
-}
-
-// Initialize clients
-const pool = PG_URL ? new Pool({
-  connectionString: PG_URL,
-  ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false,
-  max: 20,
-  idleTimeoutMillis: 30000,
-  connectionTimeoutMillis: 2000,
-}) : null;
-
-const openai = OPENAI_API_KEY ? new OpenAI({
-  apiKey: OPENAI_API_KEY,
-}) : null;
-
-// Type definitions
-type AskRequest = {
-  question: string;
-  datasetId?: string | null;
-  k?: number;
-  useLlm?: boolean;
-  metric?: "cosine" | "l2" | "inner";
-};
-
-type Neighbor = {
+/** ---------- TYPES ---------- */
+type RowDB = {
   dataset_id: string;
   pk: string;
   text_chunk: string;
-  distance: number;
-  similarity: number;
-  similarity01: number;
+  distance: number; // cosine distance for semantic; 0 for exact path
 };
+type Hit = { datasetId: string; pk: string; preview: string; distance: number };
 
-type AskResponse = {
-  question: string;
+type AskSuccess = {
+  ok: true;
   datasetId: string | null;
+  question: string;
   k: number;
-  results: Neighbor[];
-  latency_ms: number;
-  embedding_model: string;
-  dbg: {
-    db: string;
-    host: string;
-    port: number;
-    schema: string;
-    metric: string;
-    routed_dataset: string | null;
-    routed_rows: number;
-    used_dataset: string | null;
-    used_scope: "dataset" | "all";
-    fallback_used: boolean;
-    total_rows_all: number;
-    search_query?: string;
-    query_variations?: string[];
-    search_method?: string;
-  };
+  results: { exact: Hit[]; semantic: Hit[] };
   answer?: string;
-  citations?: Array<{
-    dataset_id: string;
-    pk: string;
-    preview: string;
-    distance: number;
-  }>;
   llm_model?: string;
+  embedding_model?: string;
+  token_usage?: { prompt_tokens: number; completion_tokens: number; total_tokens: number };
+  latency_ms?: number;
 };
+type AskError = { error: string };
 
-// Utility functions
-function toVectorLiteral(vec: number[]): string {
-  return `[${vec.join(",")}]`;
-}
-
-function distanceToSim01(distance: number): number {
-  const d = Math.max(0, Math.min(2, distance));
-  return 1 - d / 2;
-}
-
-function sanitizeInput(input: string): string {
-  return input.trim().slice(0, 1000);
-}
-
-function estimateTokens(text: string): number {
-  return Math.ceil(text.length / 4);
-}
-
-function truncateContext(context: string, maxTokens: number = 8000): string {
-  const estimatedTokens = estimateTokens(context);
-  if (estimatedTokens <= maxTokens) {
-    return context;
-  }
-  const charsToKeep = Math.floor((maxTokens / estimatedTokens) * context.length);
-  return context.slice(0, charsToKeep) + "... [truncated]";
-}
-
-// Generate search variations for a term
-function generateSearchVariations(term: string): string[] {
-  const variations: string[] = [term];
-  
-  // Add common variations for hyphenated terms
-  if (term.includes('-')) {
-    variations.push(term.replace(/-/g, '_'));
-    variations.push(term.replace(/-/g, ' '));
-    variations.push(term.replace(/-/g, ''));
-  }
-  
-  // Add partial matches for longer terms
-  if (term.length > 10) {
-    const parts = term.split('-');
-    if (parts.length > 1) {
-      variations.push(parts[0]); // just "purple"
-      variations.push(parts[1]); // just "elephant"
-      if (parts.length > 2) {
-        variations.push(parts[2]); // just "42"
-      }
-    }
-  }
-  
-  return [...new Set(variations)]; // Remove duplicates
-}
-
+/** ---------- HANDLER ---------- */
 export default async function handler(
   req: NextApiRequest,
-  res: NextApiResponse<AskResponse | { error: string; latency_ms: number }>
+  res: NextApiResponse<AskSuccess | AskError>
 ) {
-  const t0 = Date.now();
-  
-  if (!pool || !openai) {
-    const latency_ms = Date.now() - t0;
-    return res.status(500).json({ 
-      error: "Server configuration error", 
-      latency_ms 
-    });
-  }
+  if (req.method !== "POST") return res.status(405).json({ error: "POST only" });
 
+  const started = Date.now();
+  const body = typeof req.body === "string" ? safeParse(req.body) : req.body ?? {};
+
+  const datasetId: string | null =
+    typeof body?.datasetId === "string" && body.datasetId.trim() ? body.datasetId.trim() : null;
+  const question: string =
+    typeof body?.question === "string" && body.question.trim() ? body.question.trim() : "";
+  const kExact = Number.isFinite(body?.k) && body.k > 0 && body.k <= 50 ? Number(body.k) : 5;
+  const kSemantic = Math.max(10, kExact); // pull a bit more for semantic
+  const useLlm: boolean = !!body?.useLlm;
+
+  if (!question) return res.status(400).json({ error: "Missing 'question' text" });
+
+  const client = await pool.connect();
   try {
-    if (req.method !== "POST") {
-      return res.status(405).json({ error: "Use POST", latency_ms: 0 });
-    }
+    /** ---------- EXACT (substring) ---------- */
+    const exactSql = `
+      SELECT dataset_id, pk, text_chunk, 0 AS distance
+      FROM public.embeddings
+      WHERE ($1::text IS NULL OR dataset_id = $1)
+        AND text_chunk ILIKE '%' || $2 || '%'
+      ORDER BY pk
+      LIMIT $3
+    `;
+    const exactParams = [datasetId ?? null, question, kExact];
+    console.log("\nASK exact:\n" + interpolate(exactSql, exactParams));
+    const exactRes = await client.query<RowDB>(exactSql, exactParams);
 
-    const { question, datasetId, k, useLlm }: AskRequest = req.body || {};
-    
-    if (!question || typeof question !== "string") {
-      return res.status(400).json({ error: "Missing 'question'", latency_ms: 0 });
-    }
-    
-    const sanitizedQuestion = sanitizeInput(question);
-    const topK = Math.max(1, Math.min(k || 5, 50));
-    const clientDatasetId = datasetId ? String(datasetId) : null;
-    const wantsAll = !clientDatasetId || clientDatasetId.toUpperCase() === "ALL" || clientDatasetId === "*";
-    const routedDatasetId = wantsAll ? DEMO_DATASET_ID : clientDatasetId;
-
-    const client = await pool.connect();
-    
+    /** ---------- SEMANTIC (pgvector, COSINE) ---------- */
+    let semanticResRows: RowDB[] = [];
+    let qvec: number[] | null = null;
     try {
-      // Get database statistics
-      const totalRowsAllResult = await client.query<{ n: string }>(
-        "SELECT COUNT(*)::bigint AS n FROM embeddings"
-      );
-      const totalRowsAll = totalRowsAllResult.rows[0]?.n ?? "0";
-
-      const routedRowsResult = await client.query<{ n: string }>(
-        "SELECT COUNT(*)::bigint AS n FROM embeddings WHERE dataset_id = $1",
-        [routedDatasetId]
-      );
-      const routedRows = routedRowsResult.rows[0]?.n ?? "0";
-
-      // STEP 1: Generate search variations
-      let searchQuery = sanitizedQuestion;
-      let queryVariations = generateSearchVariations(sanitizedQuestion);
-      let searchMethod = "exact";
-      
-      // STEP 2: First try exact matching for all variations
-      let allResults: any[] = [];
-      
-      for (const variation of queryVariations) {
-        if (variation.length <= 100 && variation.length >= 2) {
-          try {
-            const exactMatchSql = `
-              SELECT dataset_id, pk, text_chunk, 0 as distance
-              FROM embeddings 
-              WHERE ($1::text IS NULL OR dataset_id = $1)
-              AND text_chunk ILIKE '%' || $2 || '%'
-              LIMIT $3
-            `;
-            const exactMatchResult = await client.query(exactMatchSql, [
-              routedDatasetId, 
-              variation, 
-              topK
-            ]);
-            allResults.push(...exactMatchResult.rows);
-          } catch (error) {
-            console.error("Exact match error:", error);
-          }
-        }
-      }
-
-      // Remove duplicates
-      const uniqueExactResults = allResults.filter((result, index, self) =>
-        index === self.findIndex(r => r.dataset_id === result.dataset_id && r.pk === result.pk)
-      ).slice(0, topK);
-
-      let results: Neighbor[] = [];
-      
-      // If we found exact matches, use them
-      if (uniqueExactResults.length > 0) {
-        results = uniqueExactResults.map((r: any) => ({
-          dataset_id: r.dataset_id,
-          pk: String(r.pk),
-          text_chunk: r.text_chunk,
-          distance: 0,
-          similarity: 1,
-          similarity01: 1,
-        }));
-      } else {
-        // STEP 3: Fall back to semantic search
-        searchMethod = "semantic";
-        try {
-          const emb = await openai.embeddings.create({
-            model: EMBEDDING_MODEL,
-            input: searchQuery,
-          });
-          const vec: number[] = emb.data[0].embedding;
-          const vecLiteral = toVectorLiteral(vec);
-
-          const semanticSql = `
-            SELECT dataset_id, pk, text_chunk, (embedding <=> $1::vector) AS distance
-            FROM embeddings
-            WHERE ($2::text IS NULL OR dataset_id = $2)
-            ORDER BY embedding <=> $1::vector
-            LIMIT $3
-          `;
-          
-          const semanticResult = await client.query(semanticSql, [
-            vecLiteral, 
-            routedDatasetId, 
-            topK
-          ]);
-          
-          results = semanticResult.rows.map((r: any) => ({
-            dataset_id: r.dataset_id,
-            pk: String(r.pk),
-            text_chunk: r.text_chunk,
-            distance: Number(r.distance),
-            similarity: -Number(r.distance),
-            similarity01: distanceToSim01(Number(r.distance)),
-          }));
-        } catch (error) {
-          console.error("Semantic search error:", error);
-        }
-      }
-
-      // STEP 4: Generate LLM response if requested
-      let answer: string | undefined;
-      let citations: AskResponse["citations"] = undefined;
-      let llm_model: string | undefined;
-
-      if (useLlm) {
-        llm_model = LLM_MODEL;
-
-        if (results.length > 0) {
-          let contextSnippet = results
-            .map((r, i) => `#${i + 1} (${r.dataset_id}#${r.pk})\n${r.text_chunk}`)
-            .join("\n\n");
-          
-          contextSnippet = truncateContext(contextSnippet);
-
-          try {
-            const completion = await openai.chat.completions.create({
-              model: llm_model,
-              messages: [
-                {
-                  role: "system",
-                  content: `Answer the user's question using the provided context. Be helpful and analytical. If the context contains the information, provide a detailed answer. If not, say you couldn't find specific information.`
-                },
-                {
-                  role: "user",
-                  content: `Question: ${sanitizedQuestion}\n\nContext:\n${contextSnippet}`
-                }
-              ],
-              temperature: 0.2,
-              max_tokens: 500,
-            });
-
-            answer = completion.choices[0]?.message?.content?.trim();
-          } catch (llmError) {
-            console.error("LLM error:", llmError);
-            answer = "I encountered an error while generating the response.";
-          }
-        } else {
-          answer = "I couldn't find any relevant information about this in the available data.";
-        }
-
-        citations = results.map(r => ({
-          dataset_id: r.dataset_id,
-          pk: r.pk,
-          preview: r.text_chunk.slice(0, 160) + (r.text_chunk.length > 160 ? "..." : ""),
-          distance: r.distance,
-        }));
-      }
-
-      const latency_ms = Date.now() - t0;
-      
-      const responseData: AskResponse = {
-        question: sanitizedQuestion,
-        datasetId: clientDatasetId,
-        k: topK,
-        results,
-        latency_ms,
-        embedding_model: searchMethod === "semantic" ? EMBEDDING_MODEL : "exact-match",
-        dbg: {
-          db: "postgres",
-          host: (client as any).connectionParameters?.host || "unknown",
-          port: Number((client as any).connectionParameters?.port || 5432),
-          schema: "public",
-          metric: "cosine",
-          routed_dataset: routedDatasetId,
-          routed_rows: Number(routedRows),
-          used_dataset: routedDatasetId,
-          used_scope: "dataset",
-          fallback_used: false,
-          total_rows_all: Number(totalRowsAll),
-          search_query: searchQuery,
-          query_variations: queryVariations,
-          search_method: searchMethod
-        }
-      };
-
-      if (answer) responseData.answer = answer;
-      if (citations) responseData.citations = citations;
-      if (llm_model) responseData.llm_model = llm_model;
-
-      return res.status(200).json(responseData);
-
-    } finally {
-      client.release();
+      qvec = await embedText(question); // uses text-embedding-3-small (1536-dim)
+    } catch (e: any) {
+      console.warn("embedText failed:", e?.message || e);
     }
-  } catch (err: any) {
-    const latency_ms = Date.now() - t0;
-    console.error("API Error:", err);
-    return res.status(500).json({ 
-      error: err.message || "Internal server error", 
-      latency_ms 
+
+    if (qvec) {
+      const qv = toSqlVector(qvec); // -> "[...]" string literal
+      const semSql = `
+        WITH query AS (SELECT $1::vector AS qvec)
+        SELECT e.dataset_id, e.pk, e.text_chunk,
+               (e.embedding <=> q.qvec) AS distance   -- COSINE distance (lower = closer)
+        FROM public.embeddings e
+        CROSS JOIN query q
+        WHERE ($2::text IS NULL OR e.dataset_id = $2)
+        ORDER BY e.embedding <=> q.qvec
+        LIMIT $3
+      `;
+      const semParams = [qv, datasetId ?? null, kSemantic];
+      console.log("\nASK semantic (cosine):\n" + interpolate(semSql, semParams));
+      const semRes = await client.query<RowDB>(semSql, semParams);
+      semanticResRows = semRes.rows;
+    } else {
+      console.warn("No query embedding; semantic retrieval skipped.");
+    }
+
+    /** ---------- SHAPE OUTPUT ---------- */
+    const shape = (rows: RowDB[]): Hit[] =>
+      rows.map((r) => ({
+        datasetId: r.dataset_id,
+        pk: r.pk,
+        preview: r.text_chunk.length > 200 ? r.text_chunk.slice(0, 200) + "…" : r.text_chunk,
+        distance: Number.isFinite(r.distance) ? r.distance : 0,
+      }));
+
+    const exact = shape(exactRes.rows);
+    const semantic = shape(semanticResRows);
+
+    /** ---------- DE-DUPE (keep best distance per (datasetId, pk)) ---------- */
+    const merged = [...exact, ...semantic];
+    const bestByPk = new Map<string, Hit>();
+    for (const h of merged) {
+      const key = `${h.datasetId}|${h.pk}`;
+      const prev = bestByPk.get(key);
+      if (!prev || h.distance < prev.distance) bestByPk.set(key, h);
+    }
+    // Preserve original order bias: exact first, then semantic, but only unique bests
+    const uniqueExact: Hit[] = [];
+    const seen = new Set<string>();
+    for (const h of exact) {
+      const key = `${h.datasetId}|${h.pk}`;
+      if (seen.has(key)) continue;
+      uniqueExact.push(bestByPk.get(key)!);
+      seen.add(key);
+    }
+    const uniqueSemantic: Hit[] = [];
+    for (const h of semantic) {
+      const key = `${h.datasetId}|${h.pk}`;
+      if (seen.has(key)) continue;
+      uniqueSemantic.push(bestByPk.get(key)!);
+      seen.add(key);
+    }
+
+    /** ---------- OPTIONAL: LLM ANSWER (grounded on combined context) ---------- */
+    let answer: string | undefined;
+    let llm_model: string | undefined;
+    let token_usage: AskSuccess["token_usage"] | undefined;
+
+    if (useLlm && openai) {
+      // Build a compact, grounded context: exact first, then semantic bests
+      const contextForLlm = [...uniqueExact, ...uniqueSemantic].slice(0, Math.max(3, kExact));
+      const sys =
+        "You are a data catalog assistant. Use the provided context for any data-specific facts (fields/values/pks). You may use general knowledge and synonyms to interpret the question (e.g., recognizing that a gorilla is a primate). If a data fact isn’t in context, say you don’t know. Cite pk values when relevant.";
+      const user = [
+        `Dataset ID: ${datasetId ?? "ALL"}`,
+        `Question: ${question}`,
+        "Context rows:",
+        contextForLlm
+          .map(
+            (h, i) =>
+              `#${i + 1} [dataset=${h.datasetId} pk=${h.pk}] ${typeof h.preview === "string" ? h.preview : JSON.stringify(h.preview)}`
+          )
+          .join("\n\n") || "(none)",
+      ].join("\n\n");
+
+      try {
+        const chat = await openai.chat.completions.create({
+          model: process.env.OPENAI_MODEL || "gpt-4o-mini",
+          messages: [
+            { role: "system", content: sys },
+            { role: "user", content: user },
+          ],
+          temperature: 0.2,
+          max_tokens: 400,
+        });
+        answer = chat.choices?.[0]?.message?.content?.trim() || undefined;
+        llm_model = process.env.OPENAI_MODEL || "gpt-4o-mini";
+        const u: any = (chat as any)?.usage;
+        if (u) {
+          token_usage = {
+            prompt_tokens: u.prompt_tokens ?? 0,
+            completion_tokens: u.completion_tokens ?? 0,
+            total_tokens:
+              (u.prompt_tokens ?? 0) + (u.completion_tokens ?? 0),
+          };
+        }
+      } catch (err: any) {
+        console.warn("LLM call failed:", err?.message || err);
+      }
+    } else if (useLlm && !openai) {
+      console.warn("UseLlm=true but OPENAI_API_KEY not set.");
+    }
+
+    const latency_ms = Date.now() - started;
+
+    return res.status(200).json({
+      ok: true,
+      datasetId,
+      question,
+      k: kExact,
+      results: { exact: uniqueExact, semantic: uniqueSemantic },
+      ...(answer ? { answer } : {}),
+      ...(llm_model ? { llm_model } : {}),
+      embedding_model: "text-embedding-3-small",
+      ...(token_usage ? { token_usage } : {}),
+      latency_ms,
     });
+  } catch (e: any) {
+    console.error("ASK ERROR:", e?.message || e);
+    return res.status(400).json({ error: e?.message || "ask failed" });
+  } finally {
+    client.release();
+  }
+}
+
+/** ---------- UTILS ---------- */
+function safeParse(s: string): any {
+  try {
+    return JSON.parse(s);
+  } catch {
+    return {};
   }
 }

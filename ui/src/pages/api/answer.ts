@@ -1,216 +1,214 @@
-// pages/api/answer.ts
+/* /pages/api/ask.ts */
 import type { NextApiRequest, NextApiResponse } from "next";
 import { Pool } from "pg";
-import OpenAI from "openai";
+import { openai, embedText, toSqlVector } from "@/lib/ai";
 
-/**
- * Required env:
- *  - OPENAI_API_KEY="sk-..."
- *  - (one of) DATABASE_URL or PG_URL, e.g.:
- *      postgres://user:password@host:5432/db
- *    If your password has special chars (@:/?#&), URL-encode them.
- *
- * Schema expectations:
- *  - Table: embeddings
- *    - dataset_id TEXT NULL
- *    - pk TEXT NOT NULL
- *    - text_chunk TEXT NOT NULL
- *    - embedding VECTOR(1536) NOT NULL  -- pgvector
- *
- * Recommended index:
- *  CREATE INDEX ON embeddings USING ivfflat (embedding vector_cosine_ops) WITH (lists = 100);
- *  ANALYZE embeddings;
- */
+const DB_URL = process.env.DATABASE_URL || process.env.PG_URL;
+if (!DB_URL) throw new Error("Missing DATABASE_URL/PG_URL for Postgres connection");
+const pool = new Pool({ connectionString: DB_URL });
 
-// ---------- Env + Pool (robust, supports PG_URL) ----------
-const DATABASE_URL = process.env.DATABASE_URL ?? process.env.PG_URL;
-if (!DATABASE_URL) {
-  throw new Error(
-    "Missing Postgres URL. Set DATABASE_URL or PG_URL. Example:\n" +
-      "  DATABASE_URL=postgres://user:password@host:5432/db\n" +
-      "Tip: URL-encode special characters in the password."
-  );
-}
-
-// Many hosted Postgres require SSL. Disable locally with PGSSL=disable
-const ssl =
-  process.env.PGSSL === "disable" ? false : ({ rejectUnauthorized: false } as const);
-
-function maskUrl(url: string) {
+/** LOGGING ONLY — do not execute what this prints */
+function escapeLiteralForLog(val: unknown): string {
+  if (val === null || val === undefined) return "NULL";
+  if (typeof val === "number" && Number.isFinite(val)) return String(val);
+  if (typeof val === "boolean") return val ? "TRUE" : "FALSE";
+  if (typeof val === "string") {
+    // If looks like a pgvector literal, keep unquoted
+    if (/^\s*\[\s*-?\d+(?:\.\d+)?(?:\s*,\s*-?\d+(?:\.\d+)?)*\s*\]\s*$/.test(val)) return val;
+    return `'${val.replace(/'/g, "''")}'`;
+  }
   try {
-    const u = new URL(url);
-    if (u.password) u.password = "*****";
-    return u.toString();
+    const s = JSON.stringify(val);
+    return `'${s.replace(/'/g, "''")}'`;
   } catch {
-    return "(invalid DATABASE_URL/PG_URL)";
+    return `'${String(val).replace(/'/g, "''")}'`;
   }
 }
-
-let pool: Pool;
-try {
-  pool = new Pool({ connectionString: DATABASE_URL, ssl });
-} catch (e: any) {
-  throw new Error(`Failed to init Postgres pool for ${maskUrl(DATABASE_URL)}: ${e?.message || e}`);
+function interpolate(sql: string, params: unknown[]): string {
+  return sql.replace(/\$(\d+)\b/g, (_, i) => escapeLiteralForLog(params[Number(i) - 1]));
 }
 
-const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+type RowDB = {
+  dataset_id: string;
+  pk: string;
+  text_chunk: string;
+  distance: number;
+};
+type Hit = { datasetId: string; pk: string; preview: string; distance: number };
 
-// Tunables
-const EMBEDDING_MODEL = process.env.EMBEDDING_MODEL ?? "text-embedding-3-small"; // 1536 dims
-const CHAT_MODEL = process.env.CHAT_MODEL ?? "gpt-4o-mini";
-const MAX_CTX_CHARS = 12000; // keep prompt sane
-const DEFAULT_K = 5;
-const MAX_K = 50;
+type AskSuccess = {
+  ok: true;
+  datasetId: string | null;
+  question: string;
+  k: number;
+  results: { exact: Hit[]; semantic: Hit[] };
+  answer?: string;
+  llm_model?: string;
+  embedding_model?: string;
+  token_usage?: { prompt_tokens: number; completion_tokens: number; total_tokens: number };
+  latency_ms?: number;
+};
+type AskError = { error: string };
 
-// cosine distance -> similarity
-function toSimilarity(distance: number | null | undefined) {
-  if (distance == null) return 0;
-  const sim = 1 - distance; // pgvector cosine distance = 1 - cosine_similarity
-  return Math.max(0, Math.min(1, sim));
-}
+export default async function handler(
+  req: NextApiRequest,
+  res: NextApiResponse<AskSuccess | AskError>
+) {
+  if (req.method !== "POST") return res.status(405).json({ error: "POST only" });
 
-export default async function handler(req: NextApiRequest, res: NextApiResponse) {
-  const t0 = Date.now();
+  const started = Date.now();
+  const body = typeof req.body === "string" ? safeParse(req.body) : req.body ?? {};
+  const datasetId: string | null =
+    typeof body?.datasetId === "string" && body.datasetId.trim() ? body.datasetId.trim() : null;
+  const question: string =
+    typeof body?.question === "string" && body.question.trim() ? body.question.trim() : "";
+  const k = Number.isFinite(body?.k) && body.k > 0 && body.k <= 50 ? Number(body.k) : 5;
+  const useLlm: boolean = !!body?.useLlm;
 
-  if (req.method !== "POST") {
-    return res.status(405).json({ error: "POST only" });
-  }
+  if (!question) return res.status(400).json({ error: "Missing 'question' text" });
 
+  const client = await pool.connect();
   try {
-    const { question, datasetId, k } = req.body ?? {};
-    const trimmedQ = (question ?? "").toString().trim();
-    const K = Math.max(1, Math.min(Number.isFinite(+k) ? +k : DEFAULT_K, MAX_K));
-    const ds = (datasetId ?? null) && String(datasetId).trim() ? String(datasetId).trim() : null;
+    // ---------- EXACT (substring) ----------
+    const exactSql = `
+      SELECT dataset_id, pk, text_chunk, 0 AS distance
+      FROM public.embeddings
+      WHERE ($1::text IS NULL OR dataset_id = $1)
+        AND text_chunk ILIKE '%' || $2 || '%'
+      ORDER BY pk
+      LIMIT $3
+    `;
+    const exactParams = [datasetId ?? null, question, k];
+    console.log("\nASK exact:\n" + interpolate(exactSql, exactParams));
+    const exactRes = await client.query<RowDB>(exactSql, exactParams);
 
-    if (!trimmedQ) {
-      return res.status(400).json({ error: "Missing 'question'." });
-    }
-
-    // 1) Embed the query (must match stored vector dims)
-    const e0 = Date.now();
-    const embResp = await openai.embeddings.create({
-      model: EMBEDDING_MODEL,
-      input: trimmedQ,
-    });
-    const qvec = embResp.data[0]?.embedding;
-    if (!qvec || !Array.isArray(qvec)) {
-      throw new Error("Failed to get embedding for question.");
-    }
-    const embed_ms = Date.now() - e0;
-
-    // 2) Retrieve neighbors from Postgres/pgvector — identical to /api/ask
-    const client = await pool.connect();
-    let rows: {
-      dataset_id: string | null;
-      pk: string;
-      text_chunk: string;
-      distance: number;
-    }[] = [];
+    // ---------- SEMANTIC (pgvector) ----------
+    // Build a query embedding from the user's question; skip if we can’t
+    let semanticResRows: RowDB[] = [];
+    let qvec: number[] | null = null;
     try {
-      const sql = ds
-        ? `
-          SELECT dataset_id, pk, text_chunk, (embedding <=> $1::vector) AS distance
-          FROM embeddings
-          WHERE dataset_id = $2
-          ORDER BY embedding <=> $1::vector
-          LIMIT $3;
-        `
-        : `
-          SELECT dataset_id, pk, text_chunk, (embedding <=> $1::vector) AS distance
-          FROM embeddings
-          ORDER BY embedding <=> $1::vector
-          LIMIT $2;
-        `;
-      const params = ds ? [qvec, ds, K] : [qvec, K];
-      const r = await client.query(sql, params);
-      rows = r.rows;
-    } finally {
-      client.release();
+      qvec = await embedText(question);
+    } catch (e: any) {
+      console.warn("embedText failed:", e?.message || e);
     }
 
-    // 3) Relevance gate
-    const top = rows[0];
-    const topSim = toSimilarity(top?.distance);
-    const relevant = topSim >= 0.6; // tweak to taste
-
-    // Citations + context
-    const citations = rows.map((r) => ({ dataset_id: r.dataset_id, pk: r.pk }));
-
-    let accumulated = 0;
-    const contextBlocks: string[] = [];
-    for (const r of rows) {
-      const chunk = r.text_chunk || "";
-      if (accumulated + chunk.length > MAX_CTX_CHARS) break;
-      contextBlocks.push(
-        [
-          `# Source`,
-          `dataset_id: ${r.dataset_id ?? "NULL"}`,
-          `pk: ${r.pk}`,
-          `similarity: ${toSimilarity(r.distance).toFixed(4)}`,
-          ``,
-          chunk,
-        ].join("\n")
-      );
-      accumulated += chunk.length;
+    if (qvec) {
+      const qv = toSqlVector(qvec);
+      const semSql = `
+        WITH query AS (SELECT $1::vector AS qvec)
+        SELECT e.dataset_id, e.pk, e.text_chunk,
+               (e.embedding <#> q.qvec) AS distance
+        FROM public.embeddings e
+        CROSS JOIN query q
+        WHERE ($2::text IS NULL OR e.dataset_id = $2)
+        ORDER BY e.embedding <#> q.qvec
+        LIMIT $3
+      `;
+      const semParams = [qv, datasetId ?? null, k];
+      console.log("\nASK semantic:\n" + interpolate(semSql, semParams));
+      const semRes = await client.query<RowDB>(semSql, semParams);
+      semanticResRows = semRes.rows;
+    } else {
+      console.warn("No query embedding; semantic retrieval skipped.");
     }
 
-    let answer = "I don't know.";
+    // ---------- Shape output ----------
+    const shape = (rows: RowDB[]): Hit[] =>
+      rows.map((r) => ({
+        datasetId: r.dataset_id,
+        pk: r.pk,
+        preview: r.text_chunk.length > 200 ? r.text_chunk.slice(0, 200) + "…" : r.text_chunk,
+        distance: Number.isFinite(r.distance) ? r.distance : 0,
+      }));
 
-    // 4) Generate final answer grounded in retrieved context
-    if (relevant && contextBlocks.length > 0) {
-      const sys = [
-        "You are a precise data catalog assistant.",
-        "Answer ONLY using the provided context. If the context does not contain the answer, say you don't know.",
-        "Be concise. When helpful, cite dataset_id and pk from the sources.",
-      ].join(" ");
+    const exact = shape(exactRes.rows);
+    const semantic = shape(semanticResRows);
 
-      const userPrompt = [
-        `Question: ${trimmedQ}`,
-        ``,
-        `Context (top ${contextBlocks.length}):`,
-        contextBlocks.join("\n\n---\n\n"),
-        ``,
-        `Instructions:`,
-        `- If a beacon phrase (e.g., purple-elephant-42) appears in a source, surface it and cite it.`,
-        `- If you don't have enough info, say "I don't know."`,
-      ].join("\n");
+    // ---------- Optional: LLM answer grounded in both exact+semantic ----------
+    let answer: string | undefined;
+    let llm_model: string | undefined;
+    let token_usage: AskSuccess["token_usage"] | undefined;
 
-      const chat = await openai.chat.completions.create({
-        model: CHAT_MODEL,
-        temperature: 0.2,
-        messages: [
-          { role: "system", content: sys },
-          { role: "user", content: userPrompt },
-        ],
-      });
+    if (useLlm && openai) {
+      const context = [...exact, ...semantic]
+        // de-dupe by dataset+pk while keeping order
+        .filter(
+          ((seen) => (h) => {
+            const key = `${h.datasetId}|${h.pk}`;
+            if (seen.has(key)) return false;
+            seen.add(key);
+            return true;
+          })(new Set<string>())
+        )
+        .slice(0, Math.max(3, k)); // don’t overstuff the prompt
 
-      const content = chat.choices?.[0]?.message?.content?.trim();
-      if (content) answer = content;
+      const sys =
+        "You are a precise data catalog assistant. Use only the provided context. If the answer isn't present, say you don't know. When helpful, cite pk values inline.";
+      const user = [
+        `Dataset ID: ${datasetId ?? "ALL"}`,
+        `Question: ${question}`,
+        "Context rows:",
+        context
+          .map(
+            (h, i) =>
+              `#${i + 1} [dataset=${h.datasetId} pk=${h.pk}] ${typeof h.preview === "string" ? h.preview : JSON.stringify(h.preview)}`
+          )
+          .join("\n\n") || "(none)",
+      ].join("\n\n");
+
+      try {
+        const chat = await openai.chat.completions.create({
+          model: process.env.OPENAI_MODEL || "gpt-4o-mini",
+          messages: [
+            { role: "system", content: sys },
+            { role: "user", content: user },
+          ],
+          temperature: 0.2,
+          max_tokens: 400,
+        });
+        answer = chat.choices?.[0]?.message?.content?.trim() || undefined;
+        llm_model = process.env.OPENAI_MODEL || "gpt-4o-mini";
+        const u: any = (chat as any)?.usage;
+        if (u) {
+          token_usage = {
+            prompt_tokens: u.prompt_tokens ?? 0,
+            completion_tokens: u.completion_tokens ?? 0,
+            total_tokens:
+              (u.prompt_tokens ?? 0) + (u.completion_tokens ?? 0),
+          };
+        }
+      } catch (err: any) {
+        console.warn("LLM call failed:", err?.message || err);
+      }
+    } else if (useLlm && !openai) {
+      console.warn("UseLlm=true but OPENAI_API_KEY not set.");
     }
 
-    const latency_ms = Date.now() - t0;
-
-    return res.status(200).json({
-      request_id: `${t0}-${Math.random().toString(36).slice(2, 10)}`,
-      question: trimmedQ,
-      datasetId: ds,
-      k: K,
-      latency_ms,
-      answer,
-      citations,
-      relevant,
-      top1_similarity: Number(topSim.toFixed(4)),
-      top3_distances: rows.slice(0, 3).map((r) => Number(r.distance.toFixed(6))),
-      embed_ms,
-      retriever_model: EMBEDDING_MODEL,
-      chat_model: CHAT_MODEL,
-      db: maskUrl(DATABASE_URL), // handy for sanity checks
-    });
-  } catch (err: any) {
-    const raw = (req as any)?._startTime;
-    const started =
-      typeof raw === "number" ? raw : raw instanceof Date ? raw.getTime() : Date.now();
     const latency_ms = Date.now() - started;
-    return res.status(500).json({ error: err?.message ?? "Unknown error", latency_ms });
+    return res.status(200).json({
+      ok: true,
+      datasetId,
+      question,
+      k,
+      results: { exact, semantic },
+      ...(answer ? { answer } : {}),
+      ...(llm_model ? { llm_model } : {}),
+      embedding_model: "text-embedding-3-small",
+      ...(token_usage ? { token_usage } : {}),
+      latency_ms,
+    });
+  } catch (e: any) {
+    console.error("ASK ERROR:", e?.message || e);
+    return res.status(400).json({ error: e?.message || "ask failed" });
+  } finally {
+    client.release();
+  }
+}
+
+function safeParse(s: string): any {
+  try {
+    return JSON.parse(s);
+  } catch {
+    return {};
   }
 }

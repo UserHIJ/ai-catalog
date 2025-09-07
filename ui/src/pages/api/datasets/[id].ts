@@ -44,8 +44,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     // --- COLUMNS -----------------------------------------------------------
     // Your catalog_columns uses ds_* ids (you verified), so match on the ds id.
     const colsRows = await q(`
-      SELECT dataset_id, column_name, data_type, pii_flag, null_ratio, distinct_ratio
-      FROM iceberg_scan('${wh}/catalog/catalog_columns')
+      SELECT dataset_id, column_name, data_type, pii_flag, null_ratio, distinct_ratio, indexed
+      FROM iceberg_scan('s3://iceberg-warehouse/catalog/catalog_columns-f42a2d52bb264ff4a628a4a9e77a1e12/metadata/v00003.metadata.json')
       WHERE dataset_id='${escId}'
       ORDER BY dataset_id, column_name, data_type
     `);
