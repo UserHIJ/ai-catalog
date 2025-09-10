@@ -1,222 +1,234 @@
-// pages/ask.tsx
-import React, { useState } from "react";
+// /ui/src/pages/ask.tsx
+import { useState } from "react";
+import Layout from "@/components/Layout";
+import { Card } from "@/components/Card";
+
+type ApiHit = {
+  datasetId: string;
+  pk: string;
+  preview: string;
+  distance?: number | null;
+};
 
 type AskResponse = {
-  question: string;
-  datasetId: string | null;
-  k: number;
-  results: any[];
-  latency_ms: number;
-  embedding_model: string;
   answer?: string;
-  citations?: Array<{ dataset_id: string; pk: string; preview: string; distance: number }>;
-  llm_model?: string;
+  // New shape from /api/ask
+  used?: {
+    exact?: ApiHit[];
+    semantic?: ApiHit[];
+    merged?: ApiHit[];
+  };
+  // Old shape fallback
+  results?: ApiHit[];
+  error?: string;
 };
 
 export default function AskPage() {
-  const [question, setQuestion] = useState("What is purple-elephant-42 and which user account is it associated with?");
-  const [datasetId, setDatasetId] = useState<string>("ds_salesforce_accounts");
-  const [k, setK] = useState<number>(3);
-  const [useLlm, setUseLlm] = useState<boolean>(true);
+  const [q, setQ] = useState("");
+  const [datasetId, setDatasetId] = useState<string>(""); // blank = all datasets
   const [loading, setLoading] = useState(false);
   const [resp, setResp] = useState<AskResponse | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+  const [k, setK] = useState<number>(8); // semantic neighbors
+  const [exactLimit, setExactLimit] = useState<number>(3);
+
+  const results: ApiHit[] =
+    resp?.used?.merged ??
+    resp?.results ??
+    []; // safe fallback so .length and .map never explode
 
   async function onAsk(e: React.FormEvent) {
     e.preventDefault();
     setLoading(true);
-    setError(null);
     setResp(null);
-
+    setErr(null);
     try {
-      const body: any = {
-        question,
-        k,
-        useLlm,
-      };
-      if (datasetId && datasetId !== "ALL") {
-        body.datasetId = datasetId;
-      }
-
       const r = await fetch("/api/ask", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
+        body: JSON.stringify({
+          q,
+          datasetId: datasetId && datasetId.toLowerCase() !== "all" ? datasetId : undefined,
+          k,
+          exactLimit,
+        }),
       });
-      if (!r.ok) {
-        const txt = await r.text();
-        throw new Error(`HTTP ${r.status}: ${txt}`);
-      }
-      const data: AskResponse = await r.json();
-      setResp(data);
-    } catch (err: any) {
-      setError(String(err?.message || err));
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(j?.error || r.statusText);
+      setResp(j as AskResponse);
+    } catch (e: any) {
+      setErr(e?.message || "ask failed");
     } finally {
       setLoading(false);
     }
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-blue-50 via-indigo-50 to-purple-50">
-      <div className="py-6 px-4">
-        <div className="max-w-3xl mx-auto">
-          
-          {/* Header */}
-          <div className="text-center mb-6">
-            <h1 className="text-3xl font-bold text-gray-800 mb-2">AI Search</h1>
-            <p className="text-gray-600">Ask questions about your data</p>
+    <Layout>
+      <div className="mb-4">
+        <h2 className="text-2xl font-semibold">Ask the Catalog</h2>
+      </div>
+
+      <Card>
+        <form onSubmit={onAsk} className="flex flex-col gap-3">
+          <div className="flex flex-col gap-2">
+            <label htmlFor="q" className="text-sm text-slate-600">
+              Question
+            </label>
+            <textarea
+              id="q"
+              placeholder='e.g. "is there a blue gorilla?"'
+              value={q}
+              onChange={(e) => setQ(e.target.value)}
+              rows={3}
+              className="w-full rounded-lg border border-slate-300 p-3 outline-none focus:ring focus:ring-indigo-200"
+            />
           </div>
 
-          {/* Main Content Card */}
-          <div className="bg-white rounded-2xl shadow-lg border border-gray-200">
-            
-            {/* Search Form */}
-            <div className="p-6">
-              <form onSubmit={onAsk} className="space-y-6">
-                
-                {/* Question Input Section */}
-                <div className="space-y-3">
-                  <label className="block text-lg font-semibold text-gray-800">
-                  
-                  </label>
-                  <textarea
-                    className="w-full rounded-xl border-2 border-gray-300 px-4 py-3 text-base focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 transition-all resize-none"
-                    rows={3}
-                    value={question}
-                    onChange={(e) => setQuestion(e.target.value)}
-                    placeholder="Ask something about your data..."
-                    disabled={loading}
-                  />
-                </div>
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            <div className="flex flex-col gap-2">
+              <label htmlFor="dataset" className="text-sm text-slate-600">
+                Dataset (optional)
+              </label>
+              <input
+                id="dataset"
+                placeholder='leave blank for "All Datasets" (e.g., db2_zos_corebank_accounts_1)'
+                value={datasetId}
+                onChange={(e) => setDatasetId(e.target.value)}
+                className="w-full rounded-lg border border-slate-300 p-2 outline-none focus:ring focus:ring-indigo-200"
+              />
+            </div>
 
-                {/* Configuration Section */}
-                <div className="bg-gray-50 rounded-xl p-4 border border-gray-200">
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    {/* Dataset Selection */}
-                    <div className="space-y-2">
-                      <label className="block text-sm font-semibold text-gray-700">
-                        Dataset
-                      </label>
-                      <select
-                        className="w-full rounded-xl border-2 border-gray-300 px-3 py-2 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 transition-all bg-white"
-                        value={datasetId}
-                        onChange={(e) => setDatasetId(e.target.value)}
-                        disabled={loading}
-                      >
-                        <option value="ALL">All Datasets</option>
-                        <option value="ds_salesforce_accounts">Salesforce Accounts</option>
-                      </select>
-                    </div>
+            <div className="flex flex-col gap-2">
+              <label htmlFor="k" className="text-sm text-slate-600">
+                Semantic neighbors (k)
+              </label>
+              <input
+                id="k"
+                type="number"
+                min={1}
+                max={25}
+                value={k}
+                onChange={(e) => setK(Number(e.target.value))}
+                className="w-full rounded-lg border border-slate-300 p-2 outline-none focus:ring focus:ring-indigo-200"
+              />
+            </div>
 
-                    {/* Results Count */}
-                    <div className="space-y-2">
-                      <label className="block text-sm font-semibold text-gray-700">
-                        Results Count
-                      </label>
-                      <input
-                        type="number"
-                        min={1}
-                        max={20}
-                        className="w-full rounded-xl border-2 border-gray-300 px-3 py-2 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 transition-all bg-white"
-                        value={k}
-                        onChange={(e) => setK(Number(e.target.value))}
-                        disabled={loading}
-                      />
-                    </div>
-                  </div>
-
-                  {/* AI Toggle */}
-                  <div className="mt-4 pt-4 border-t border-gray-200">
-                    <label className="flex items-center space-x-3">
-                      <input
-                        type="checkbox"
-                        checked={useLlm}
-                        onChange={(e) => setUseLlm(e.target.checked)}
-                        className="w-5 h-5 text-indigo-600 focus:ring-indigo-500"
-                        disabled={loading}
-                      />
-                      <span className="text-md font-semibold text-gray-800">Use AI Answer</span>
-                    </label>
-                  </div>
-                </div>
-
-                {/* Submit Button */}
-                <button
-                  type="submit"
-                  disabled={loading}
-                  className="w-full bg-indigo-600 text-white py-3 px-6 rounded-xl font-semibold hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all shadow-md"
-                >
-                  {loading ? (
-                    <div className="flex items-center justify-center space-x-2">
-                      <div className="animate-spin rounded-full h-5 w-5 border-2 border-white border-t-transparent"></div>
-                      <span>Searching...</span>
-                    </div>
-                  ) : (
-                    "Ask Question"
-                  )}
-                </button>
-
-              </form>
+            <div className="flex flex-col gap-2">
+              <label htmlFor="exact" className="text-sm text-slate-600">
+                Exact match limit
+              </label>
+              <input
+                id="exact"
+                type="number"
+                min={0}
+                max={10}
+                value={exactLimit}
+                onChange={(e) => setExactLimit(Number(e.target.value))}
+                className="w-full rounded-lg border border-slate-300 p-2 outline-none focus:ring focus:ring-indigo-200"
+              />
             </div>
           </div>
 
-          {/* Error Display */}
-          {error && (
-            <div className="mt-6 bg-red-50 border border-red-200 rounded-xl p-4">
-              <div className="flex items-center space-x-3">
-                <span className="text-xl">⚠️</span>
-                <div>
-                  <h3 className="font-semibold text-red-800 mb-1">Error</h3>
-                  <p className="text-red-600">{error}</p>
-                </div>
-              </div>
-            </div>
-          )}
+          <div className="flex items-center gap-3 pt-1">
+            <button
+              type="submit"
+              disabled={loading || !q.trim()}
+              className="inline-flex items-center rounded-lg bg-indigo-600 px-4 py-2 text-white font-semibold disabled:opacity-50"
+            >
+              {loading ? "Asking…" : "Ask"}
+            </button>
+            {err && <span className="text-sm text-rose-600">{err}</span>}
+          </div>
+        </form>
+      </Card>
 
-          {/* Results Display */}
-          {resp && (
-            <div className="mt-6 space-y-6">
-              
-              {/* AI Answer Card */}
-              {resp.answer && (
-                <div className="bg-white rounded-xl shadow-lg p-6 border border-gray-200">
-                  <div className="flex items-center mb-4 space-x-3">
-                    <span className="text-2xl">🤖</span>
-                    <h2 className="text-xl font-semibold text-gray-800">AI Answer</h2>
-                    {resp.llm_model && (
-                      <span className="ml-auto text-sm text-gray-500 bg-gray-100 px-2 py-1 rounded">
-                        {resp.llm_model}
-                      </span>
+      {/* Answer */}
+      {resp?.answer && (
+        <div className="mt-4">
+          <Card>
+            <h3 className="text-lg font-semibold mb-2">Answer</h3>
+            <div className="whitespace-pre-wrap text-slate-900">{resp.answer}</div>
+          </Card>
+        </div>
+      )}
+
+      {/* No Results Message */}
+      {(!resp?.answer || results.length === 0) && !loading && (
+        <div className="bg-yellow-50 border border-yellow-200 rounded-xl p-6 text-center mt-4">
+          <span className="text-2xl mb-2 block">🔍</span>
+          <h3 className="text-lg font-semibold text-yellow-800 mb-2">No Results Found</h3>
+          <p className="text-yellow-700">
+            Try rephrasing your question or searching for different terms.
+          </p>
+        </div>
+      )}
+
+      {/* Results */}
+      {results.length > 0 && (
+        <div className="mt-4">
+          <Card>
+            <h3 className="text-lg font-semibold mb-3">Context Used</h3>
+            <ul className="flex flex-col gap-3">
+              {results.map((h, i) => (
+                <li key={`${h.datasetId}::${h.pk}`} className="border border-slate-200 rounded-lg p-3">
+                  <div className="text-xs text-slate-500 mb-1">
+                    #{i + 1} • dataset=<span className="font-mono">{h.datasetId}</span> • pk=
+                    <span className="font-mono">{h.pk}</span>
+                    {typeof h.distance === "number" && (
+                      <> • distance=<span className="font-mono">{h.distance.toFixed(4)}</span></>
                     )}
                   </div>
-                  
-                  <div className="bg-blue-50 rounded-lg p-4 border border-blue-200 mb-3">
-                    <p className="text-gray-800 leading-relaxed">{resp.answer}</p>
+                  <div className="text-slate-900 whitespace-pre-wrap">
+                    {h.preview || ""}
                   </div>
-                  
-                  <div className="text-sm text-gray-500 text-right">
-                    {resp.latency_ms}ms • {resp.embedding_model}
-                  </div>
-                </div>
-              )}
-
-              {/* No Results Message */}
-              {(!resp.answer || resp.results.length === 0) && (
-                <div className="bg-yellow-50 border border-yellow-200 rounded-xl p-6 text-center">
-                  <span className="text-2xl mb-2 block">🔍</span>
-                  <h3 className="text-lg font-semibold text-yellow-800 mb-2">No Results Found</h3>
-                  <p className="text-yellow-700">Try rephrasing your question or searching for different terms.</p>
-                </div>
-              )}
-
-            </div>
-          )}
-
-          {/* Footer spacing */}
-          <div className="h-8"></div>
-
+                </li>
+              ))}
+            </ul>
+          </Card>
         </div>
-      </div>
-    </div>
+      )}
+
+      {/* Debug panes (optional): exact and semantic separately */}
+      {resp?.used && (resp.used.exact?.length || resp.used.semantic?.length) ? (
+        <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-4">
+          <Card>
+            <h4 className="font-semibold mb-2">Exact matches</h4>
+            {resp.used.exact && resp.used.exact.length > 0 ? (
+              <ul className="flex flex-col gap-2">
+                {resp.used.exact.map((h, i) => (
+                  <li key={`ex-${h.datasetId}::${h.pk}`} className="text-sm">
+                    <span className="text-slate-500 mr-2">#{i + 1}</span>
+                    <span className="font-mono">{h.datasetId}</span> /{" "}
+                    <span className="font-mono">{h.pk}</span> — {h.preview}
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <div className="text-slate-500 text-sm">none</div>
+            )}
+          </Card>
+          <Card>
+            <h4 className="font-semibold mb-2">Semantic neighbors</h4>
+            {resp.used.semantic && resp.used.semantic.length > 0 ? (
+              <ul className="flex flex-col gap-2">
+                {resp.used.semantic.map((h, i) => (
+                  <li key={`sem-${h.datasetId}::${h.pk}`} className="text-sm">
+                    <span className="text-slate-500 mr-2">#{i + 1}</span>
+                    <span className="font-mono">{h.datasetId}</span> /{" "}
+                    <span className="font-mono">{h.pk}</span> — {h.preview}
+                    {typeof h.distance === "number" && (
+                      <span className="text-slate-500"> (dist {h.distance.toFixed(4)})</span>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <div className="text-slate-500 text-sm">none</div>
+            )}
+          </Card>
+        </div>
+      ) : null}
+    </Layout>
   );
 }

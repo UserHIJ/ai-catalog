@@ -1,7 +1,15 @@
+// /ui/src/pages/index.tsx
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import Layout from "@/components/Layout";
 import { Card } from "@/components/Card";
+
+
+
+// 14 sample points (oldest → newest). Tweak as you like.
+const SAMPLE_TREND = [8, 9, 10, 11, 12, 12, 13, 14, 15, 16, 17, 18, 19, 18, 19, 17, 19, 19, 18, 15, 12, 13, 14, 15];
+const SPARK_ONLY_ID = "db2_zos_corebank_accounts_1";
+
 
 type DatasetRow = {
   dataset_id: string;
@@ -10,6 +18,8 @@ type DatasetRow = {
   row_count: number;
   size_bytes: number;
   last_profiled_at?: string | null;
+  // OPTIONAL: if your API sends it, we’ll draw it
+  row_trend?: number[]; // e.g., last 14 points of ingest counts (oldest→newest)
 };
 
 function prettyBytes(n: number) {
@@ -56,6 +66,62 @@ function badge(label: string, color?: string) {
   );
 }
 
+/** Tiny, dependency-free sparkline (pure SVG) */
+function Sparkline({
+  data,
+  width = 120,
+  height = 26,
+  stroke = "#64748b",
+  strokeWidth = 1.5,
+  placeholder = true, // if no data, show a subtle flat line
+  showLastLabel = true,                   // <— NEW
+  formatLabel = (n: number) => `${n}`,    // <— NEW
+}: {
+  data?: number[] | null;
+  width?: number;
+  height?: number;
+  stroke?: string;
+  strokeWidth?: number;
+  placeholder?: boolean;
+}) {
+  const w = Math.max(10, width);
+  const h = Math.max(10, height);
+  const pad = 2;
+
+  const xs = Array.isArray(data) ? data.filter((v) => Number.isFinite(v)) : [];
+  const hasData = xs.length >= 2;
+  const min = hasData ? Math.min(...xs) : 0;
+  const max = hasData ? Math.max(...xs) : 1;
+  const span = max - min || 1;
+
+  const points: [number, number][] = hasData
+    ? xs.map((v, i) => {
+        const x = pad + (i * (w - pad * 2)) / (xs.length - 1);
+        const y = h - pad - ((v - min) / span) * (h - pad * 2);
+        return [x, y];
+      })
+    : placeholder
+    ? [
+        [pad, h / 2],
+        [w - pad, h / 2],
+      ]
+    : [];
+
+  const path =
+    points.length > 0
+      ? "M " + points.map(([x, y]) => `${x.toFixed(2)} ${y.toFixed(2)}`).join(" L ")
+      : "";
+
+  const last = points[points.length - 1];
+
+  return (
+    <svg width={w} height={h} viewBox={`0 0 ${w} ${h}`} role="img" aria-label="sparkline" style={{ width: "100%" }}   preserveAspectRatio="none" >
+      <path d={path} fill="none" stroke={"blue"} strokeWidth={strokeWidth} />
+      {hasData && last && <circle cx={last[0]} cy={last[1]} r={2} fill={stroke} />}
+    </svg>
+  );
+}
+
 export default function Home() {
   const [data, setData] = useState<DatasetRow[] | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -77,9 +143,7 @@ export default function Home() {
     const matchesSearch = q.trim()
       ? `${d.dataset_id} ${d.name} ${d.source}`.toLowerCase().includes(q.trim().toLowerCase())
       : true;
-    
     const matchesFilter = selectedFilter ? d.source === selectedFilter : true;
-    
     return matchesSearch && matchesFilter;
   });
 
@@ -87,7 +151,7 @@ export default function Home() {
     <Layout>
       <div style={{ display: "flex", justifyContent: "flex-start", marginBottom: 16, gap: 12 }}>
         <h2 style={{ fontSize: 22, fontWeight: 700, margin: 0 }}></h2>
-        
+
         <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
           <input
             placeholder="Search name/id/source"
@@ -101,7 +165,7 @@ export default function Home() {
               outline: "none",
             }}
           />
-          
+
           <select
             value={selectedFilter}
             onChange={(e) => setSelectedFilter(e.target.value)}
@@ -116,21 +180,35 @@ export default function Home() {
           >
             <option value="">All Sources</option>
             {Object.keys(sourceColors).map((source) => (
-              <option key={source} value={source}>{source}</option>
+              <option key={source} value={source}>
+                {source}
+              </option>
             ))}
           </select>
         </div>
       </div>
 
       {error && (
-        <div style={{ padding: 12, background: "#fee2e2", border: "1px solid #fecaca", borderRadius: 8, color: "#991b1b", marginBottom: 12 }}>
+        <div
+          style={{
+            padding: 12,
+            background: "#fee2e2",
+            border: "1px solid #fecaca",
+            borderRadius: 8,
+            color: "#991b1b",
+            marginBottom: 12,
+          }}
+        >
           {error}
         </div>
       )}
       {!data && !error && <div style={{ padding: 12, color: "#6b7280" }}>loading…</div>}
       {data && rows.length === 0 && <div style={{ padding: 12, color: "#6b7280" }}>no matches</div>}
 
-      <div className="grid-datasets px-6">
+      <div
+        className="grid-datasets px-6"
+        style={{ display: "grid", gridTemplateColumns: "repeat(8, minmax(220px, 1fr))", gap: 12 }}
+      >
         {rows.map((d) => {
           const color = sourceColors[d.source] || "#94a3b8";
           const href = `/dataset/${encodeURIComponent(d.dataset_id)}`;
@@ -165,12 +243,31 @@ export default function Home() {
                 </div>
               </div>
 
-              <div style={{ display: "flex", gap: 8, alignItems: "center", marginTop: 8, flexWrap: "wrap" }}>
+              {/* Source + profiled line */}
+              <div
+                style={{
+                  display: "flex",
+                  gap: 8,
+                  alignItems: "center",
+                  marginTop: 8,
+                  flexWrap: "wrap",
+                }}
+              >
                 {badge(d.source, color)}
                 <span style={{ fontSize: 12, color: "#6b7280" }}>
                   {d.last_profiled_at ? "profiled" : "unprofiled"}
                 </span>
               </div>
+
+              {/* Sparkline sits BELOW the source line */}
+            {d.dataset_id === SPARK_ONLY_ID && (
+              <div style={{ marginTop: 6 }}>
+                <Sparkline
+                data={Array.isArray(d.row_trend) && d.row_trend.length >= 2 ? d.row_trend : SAMPLE_TREND}
+              />
+              </div>
+              )}
+        
             </Card>
           );
         })}

@@ -17,7 +17,7 @@ type Meta = {
 type Column = {
   dataset_id: string;
   column_name: string;
-  data_type?: unknown;
+  data_type?: unknown;        // DB2 source type (what your API currently returns)
   pii_flag?: unknown;
   null_ratio?: unknown;
   distinct_ratio?: unknown;
@@ -29,17 +29,6 @@ type Edge = {
   dst_dataset_id: string;
   transform_type?: string | null;
   updated_at?: unknown;
-};
-
-/** Types shaped to what /api/ask returns (answer optional) */
-type AskHit = { datasetId: string; pk: string; preview: string; distance: number };
-type AskResults = { exact: AskHit[]; semantic: AskHit[] };
-type AskResponse = {
-  ok: boolean;
-  datasetId: string | null;
-  question: string;
-  results: AskResults;
-  answer?: string;
 };
 
 function asNumber(v: unknown): number | null {
@@ -79,6 +68,56 @@ function prettyBytes(v: unknown): string {
   return `${(n / Math.pow(1024, i)).toFixed(1)} ${units[i]}`;
 }
 
+/**
+ * Map DB2 source data types → Iceberg data types (using your Fivetran rules).
+ * Returns "i don't know" when ambiguous.
+ * NOTE: All outputs are intentionally lowercased.
+ */
+function icebergTypeFor(db2Type: unknown): string {
+  const emit = (s: string) => s.toLowerCase();
+
+  const raw = asText(db2Type);
+  if (raw === "—") return emit("I don't know");
+  const s = raw.toLowerCase().trim();
+
+  // normalize
+  const compact = s.replace(/\s+/g, " ");          // collapse spaces
+  const base = s.replace(/\s*\(.+\)/, "");         // strip (...) e.g., decimal(18,2) -> decimal
+
+  // Temporal
+  if (compact.includes("timestamp with time zone")) return emit("TIMESTAMPTZ");
+  if (compact.includes("timestamp")) return emit("TIMESTAMP");
+  if (compact === "date" || compact === "ansidate") return emit("DATE");
+  if (compact.startsWith("time2")) return emit("I don't know"); // connector-dependent
+
+  // Integers
+  if (base === "smallint") return emit("INTEGER");
+  if (base === "integer") return emit("INTEGER");
+  if (base === "bigint") return emit("LONG");
+
+  // Exact numeric (Fivetran rules: DECIMAL(38,10) | DOUBLE | STRING for huge PKs)
+  if (s.startsWith("decimal")) {
+    // If no precision/scale at all -> DOUBLE
+    if (!/\d/.test(s)) return emit("DOUBLE");
+    // Otherwise default to DECIMAL(38,10). (We can’t know PK oversize here.)
+    return emit("DECIMAL(38,10)");
+  }
+
+  // Floating / decfloat
+  if (base === "decfloat") return emit("I don't know"); // often coerced to DOUBLE, but unspecified here
+  if (base === "real") return emit("FLOAT");
+  if (base === "double") return emit("DOUBLE");
+
+  // Strings
+  if (["char", "varchar", "clob", "dbclob", "graphic", "vargraphic", "xml"].includes(base))
+    return emit("STRING");
+
+  // Binary
+  if (["binary", "varbinary", "blob"].includes(base)) return emit("BINARY");
+
+  return emit("I don't know");
+}
+
 export default function DatasetDetail(): JSX.Element {
   const { query } = useRouter();
   const id =
@@ -94,14 +133,6 @@ export default function DatasetDetail(): JSX.Element {
   const [publishing, setPublishing] = useState(false);
   const [pubMsg, setPubMsg] = useState<string | null>(null);
   const [pubErr, setPubErr] = useState<string | null>(null);
-
-  // Ask state (with checkbox to toggle LLM)
-  const [asking, setAsking] = useState(false);
-  const [askQuestion, setAskQuestion] = useState<string>("");
-  const [useLlm, setUseLlm] = useState<boolean>(true);
-  const [answer, setAnswer] = useState<string | null>(null);
-  const [askErr, setAskErr] = useState<string | null>(null);
-  const [hits, setHits] = useState<AskResults | null>(null);
 
   useEffect(() => {
     setMeta(null);
@@ -162,96 +193,10 @@ export default function DatasetDetail(): JSX.Element {
     }
   }
 
-  async function onAsk() {
-    if (!meta?.dataset_id) {
-      setAskErr("No dataset id found");
-      return;
-    }
-    setAsking(true);
-    setAnswer(null);
-    setAskErr(null);
-    setHits(null);
-    try {
-      const body: any = {
-        datasetId: String(meta.dataset_id),
-        question: askQuestion,
-        useLlm, // pass checkbox value
-        k: 5,
-      };
-      const r = await fetch(`/api/ask`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
-      });
-      const j: AskResponse = await r.json();
-      if (!r.ok || j?.ok === false) {
-        throw new Error((j as any)?.error || r.statusText || "Ask failed");
-      }
-      setAnswer(j.answer ?? null);
-      setHits(j.results ?? null);
-    } catch (e: any) {
-      setAskErr(e?.message || "ask failed");
-    } finally {
-      setAsking(false);
-    }
-  }
-
-  function renderAnswerArea() {
-    const hasAnswer = !!answer && answer.trim().length > 0;
-    const exact = hits?.exact ?? [];
-    const semantic = hits?.semantic ?? [];
-    const fallback = [...exact, ...semantic];
-    const total = fallback.length;
-
-    return (
-      <div style={{ marginBottom: 16 }}>
-        <label style={{ display: "block", fontSize: 13, fontWeight: 600, marginBottom: 4 }}>
-          Answer
-        </label>
-        <div
-          style={{
-            border: "1px solid #e5e7eb",
-            borderRadius: 6,
-            padding: "8px 10px",
-            background: "#f9fafb",
-          }}
-        >
-          {askErr ? (
-            <div style={{ color: "#dc2626", fontSize: 14 }}>Error: {askErr}</div>
-          ) : hasAnswer ? (
-            <div style={{ fontSize: 14, color: "#111827", whiteSpace: "pre-wrap" }}>{answer}</div>
-          ) : total > 0 ? (
-            <div style={{ display: "grid", gap: 6 }}>
-              <div style={{ fontSize: 13, color: "#6b7280" }}>
-                <strong>Top matches:</strong>
-              </div>
-              <ol style={{ margin: 0, paddingLeft: 18 }}>
-                {fallback.map((h, idx) => (
-                  <li key={`${h.pk}-${idx}`} style={{ fontSize: 14, color: "#374151" }}>
-                    <span style={{ color: "#6b7280" }}>[{h.pk}]</span>{" "}
-                    {typeof h.preview === "string"
-                      ? h.preview.length > 180
-                        ? h.preview.slice(0, 180) + "…"
-                        : h.preview
-                      : JSON.stringify(h.preview)}
-                    {typeof (h as any).distance === "number" && (
-                      <span style={{ color: "#9ca3af" }}> • d={(h as any).distance.toFixed(4)}</span>
-                    )}
-                  </li>
-                ))}
-              </ol>
-            </div>
-          ) : (
-            <div style={{ fontSize: 14, color: "#6b7280" }}>No results yet.</div>
-          )}
-        </div>
-      </div>
-    );
-  }
+  const profiled = Boolean(meta?.last_profiled_at && asText(meta.last_profiled_at) !== "—");
 
   return (
     <Layout>
-      {!id && <div style={{ padding: 12, color: "#6b7280" }}>Waiting for dataset id…</div>}
       {err && <div style={{ padding: 12, background: "#fee2e2" }}>{err}</div>}
       {!err && loading && <div style={{ padding: 12, color: "#6b7280" }}>loading…</div>}
 
@@ -266,66 +211,16 @@ export default function DatasetDetail(): JSX.Element {
             <div style={{ color: "#666", fontSize: 13 }}>source: {asText(meta.source)}</div>
           </div>
 
-          {/* Unified toolbar: Ask (left) + Publish (right) + LLM toggle */}
+          {/* Toolbar: Publish */}
           <div
             style={{
               display: "flex",
               alignItems: "center",
-              justifyContent: "space-between",
+              justifyContent: "flex-end",
               gap: 12,
               margin: "8px 0",
             }}
           >
-            {/* Ask controls (left) */}
-            <div style={{ flex: 1, display: "flex", alignItems: "center", gap: 10, minWidth: 0 }}>
-              <button
-                onClick={onAsk}
-                disabled={asking}
-                style={{
-                  background: "#16a34a",
-                  color: "white",
-                  padding: "6px 12px",
-                  borderRadius: 6,
-                  fontSize: 14,
-                  fontWeight: 600,
-                  cursor: asking ? "not-allowed" : "pointer",
-                  whiteSpace: "nowrap",
-                }}
-              >
-                {asking ? "Asking…" : "Ask"}
-              </button>
-
-              <input
-                type="text"
-                placeholder="Type a question…"
-                value={askQuestion}
-                onChange={(e) => setAskQuestion(e.target.value)}
-                style={{
-                  flex: 1,
-                  minWidth: 160,
-                  maxWidth: "60%",
-                  padding: "6px 10px",
-                  borderRadius: 6,
-                  border: "1px solid #e5e7eb",
-                  fontSize: 14,
-                  outline: "none",
-                }}
-                disabled={asking}
-              />
-
-              {/* LLM toggle */}
-              <label style={{ display: "flex", alignItems: "center", gap: 6, userSelect: "none" }}>
-                <input
-                  type="checkbox"
-                  checked={useLlm}
-                  onChange={(e) => setUseLlm(e.target.checked)}
-                  disabled={asking}
-                />
-                <span style={{ fontSize: 13, color: "#111827" }}>Use AI Answer</span>
-              </label>
-            </div>
-
-            {/* Publish (right) */}
             <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
               <button
                 onClick={() => onPublish(200)}
@@ -350,9 +245,6 @@ export default function DatasetDetail(): JSX.Element {
             </div>
           </div>
 
-          {/* Answer area (now always visible after the toolbar) */}
-          {renderAnswerArea()}
-
           {/* Two-column grid: Profile + Lineage */}
           <div
             style={{
@@ -365,14 +257,16 @@ export default function DatasetDetail(): JSX.Element {
             <Card>
               <h3 style={{ fontWeight: 600, marginBottom: 8 }}>Profile</h3>
               <div style={{ fontSize: 14, lineHeight: 1.8 }}>
-                <div>rows: <strong>{prettyInt(meta.row_count)}</strong></div>
+                <div>
+                  rows: <strong>{prettyInt(meta.row_count)}</strong>
+                </div>
                 <div>size (bytes): {prettyBytes(meta.size_bytes)}</div>
                 <div>last profiled: {asText(meta.last_profiled_at)}</div>
               </div>
             </Card>
             <Card>
               <h3 style={{ fontWeight: 600, marginBottom: 8 }}>Lineage</h3>
-              <LineageVisualization datasetId={id} edges={lineage} />
+              <LineageVisualization datasetId={String(meta.dataset_id)} />
             </Card>
           </div>
 
@@ -387,10 +281,25 @@ export default function DatasetDetail(): JSX.Element {
                   <thead>
                     <tr style={{ color: "#6b7280", textAlign: "left" }}>
                       <th style={{ padding: "6px 8px", borderBottom: "1px solid #e5e7eb" }}>
-                        column_name
+                        column name
                       </th>
                       <th style={{ padding: "6px 8px", borderBottom: "1px solid #e5e7eb" }}>
-                        data_type
+                        source data type
+                      </th>
+                      <th
+                        style={{
+                          padding: "6px 8px", paddingRight: "1in",    
+                          borderBottom: "1px solid #e5e7eb",
+                          width: 24,
+                          textAlign: "center",
+                        }}
+                        //aria-label="mapping arrow"
+                        title="source → Iceberg"
+                      >
+                        →
+                      </th>
+                      <th style={{ padding: "6px 8px", borderBottom: "1px solid #e5e7eb" }}>
+                        Iceberg data type
                       </th>
                       <th style={{ padding: "6px 8px", borderBottom: "1px solid #e5e7eb" }}>
                         pii_flag
@@ -409,11 +318,24 @@ export default function DatasetDetail(): JSX.Element {
                   <tbody>
                     {columns.map((c, i) => (
                       <tr key={`${c.column_name}-${i}`}>
-                        <td style={{ padding: "6px 8px", borderBottom: "1px solid #f3f4f6" }}>
+                        <td style={{ padding: "6px 8px",  paddingRight: "1in", borderBottom: "1px solid #f3f4f6" }}>
                           {asText(c.column_name)}
                         </td>
                         <td style={{ padding: "6px 8px", borderBottom: "1px solid #f3f4f6" }}>
                           {asText(c.data_type)}
+                        </td>
+                        <td
+                          style={{
+                            padding: "6px 8px",
+                            borderBottom: "1px solid #f3f4f6",
+                            textAlign: "center",
+                            color: "#6b7280",
+                          }}
+                        >
+                          →
+                        </td>
+                        <td style={{ padding: "6px 8px", borderBottom: "1px solid #f3f4f6" }}>
+                          {icebergTypeFor(c.data_type)}
                         </td>
                         <td style={{ padding: "6px 8px", borderBottom: "1px solid #f3f4f6" }}>
                           {asText(c.pii_flag)}
@@ -434,6 +356,34 @@ export default function DatasetDetail(): JSX.Element {
               </div>
             )}
           </Card>
+
+          {/* Footer: source badge + profiled/unprofiled */}
+          <div
+            style={{
+              marginTop: 14,
+              paddingTop: 10,
+              borderTop: "1px solid #e5e7eb",
+              display: "flex",
+              alignItems: "center",
+              gap: 8,
+              color: "#6b7280",
+            }}
+          >
+            <span
+              style={{
+                display: "inline-block",
+                fontSize: 12,
+                padding: "2px 8px",
+                borderRadius: 999,
+                background: "#eef2ff",
+                color: "#4f46e5",
+                border: "1px solid #4f46e533",
+              }}
+            >
+              {asText(meta.source)}
+            </span>
+            <span style={{ fontSize: 12 }}>{profiled ? "profiled" : "unprofiled"}</span>
+          </div>
         </>
       )}
     </Layout>
